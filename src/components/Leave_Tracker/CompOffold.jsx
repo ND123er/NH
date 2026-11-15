@@ -1,0 +1,2260 @@
+import React, { useEffect, useState } from "react";
+import {
+  Box,
+  Flex,
+  Select,
+  Text,
+  Button,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  InputRightElement,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  FormControl,
+  FormLabel,
+  FormErrorMessage,
+  Textarea,
+  useDisclosure,
+  useToast,
+  Spinner,
+  HStack,
+  CloseButton,
+  Badge,
+  Menu,
+  MenuButton,
+  MenuList,
+  Checkbox,
+  VStack,
+} from "@chakra-ui/react";
+
+import { SearchIcon } from "@chakra-ui/icons";
+import { FiUpload, FiPlus, FiEye, FiFilter, FiFileText } from "react-icons/fi";
+import { decodeTokenPayload, getOrgCode } from "../../utils/token";
+import api from "../../api/axios";
+
+export default function CompOff() {
+  const toast = useToast();
+  const { isOpen, onOpen, onClose } = useDisclosure();
+
+  const decoded = decodeTokenPayload();
+  const organisation_id = getOrgCode();
+
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [form, setForm] = useState({
+    worked_on: "",
+    days: "",
+    compensation_type: "",
+    reason: "",
+  });
+
+  const [evidence, setEvidence] = useState([]);
+  const [errors, setErrors] = useState({});
+
+  // Admin-only review state
+  const isAdmin = Boolean(decoded?.is_admin ?? decoded?.isAdmin);
+  const [adminStatus, setAdminStatus] = useState("");
+  const [adminCompensationType, setAdminCompensationType] = useState("");
+  const [adminEmployeeId, setAdminEmployeeId] = useState("");
+  const [adminPage, setAdminPage] = useState(1);
+  const [adminLimit] = useState(20);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminDetailsOpen, setAdminDetailsOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [approvalForm, setApprovalForm] = useState({
+    expires_on: "",
+    admin_note: "",
+  });
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [adminErrors, setAdminErrors] = useState({});
+
+  // User-side request preview
+  const [userSelectedRequest, setUserSelectedRequest] = useState(null);
+  const [userDetailsOpen, setUserDetailsOpen] = useState(false);
+  const [evidencePreviewOpen, setEvidencePreviewOpen] = useState(false);
+  const [selectedEvidence, setSelectedEvidence] = useState(null);
+  const [evidencePreviewUrl, setEvidencePreviewUrl] = useState("");
+  const [evidencePreviewLoading, setEvidencePreviewLoading] = useState(false);
+
+  /* ================= GET COMP OFF REQUESTS ================= */
+  const formatBackendDate = (value) => {
+    if (!value) return "-";
+
+    const [datePart] = String(value).split("T");
+    const [year, month, day] = datePart.split("-");
+
+    return year && month && day ? `${day}/${month}/${year}` : value;
+  };
+
+  const fetchCompOffRequests = async () => {
+    try {
+      setLoading(true);
+
+      const res = await api.get("/leave/compoff/requests", {
+        params: {
+          organisation_id,
+          //   ...(isAdmin
+          //     ? {
+          //         status: adminStatus || undefined,
+          //         compensation_type: adminCompensationType || undefined,
+          //         employee_id: adminEmployeeId || undefined,
+          //         page: adminPage,
+          //         limit: adminLimit,
+          //       }
+          //     : {}),
+          ...(adminStatus && { status: adminStatus }),
+
+          ...(isAdmin
+            ? {
+                page: adminPage,
+                limit: adminLimit,
+                ...(adminCompensationType && {
+                  compensation_type: adminCompensationType,
+                }),
+                ...(adminEmployeeId && {
+                  employee_id: adminEmployeeId,
+                }),
+              }
+            : {}),
+        },
+      });
+
+      const responseData = res?.data;
+      const data = Array.isArray(responseData)
+        ? responseData
+        : Array.isArray(responseData?.data)
+          ? responseData.data
+          : Array.isArray(responseData?.requests)
+            ? responseData.requests
+            : [];
+
+      setRequests(data);
+    } catch (err) {
+      toast({
+        title: "Failed to load Comp Off requests",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to load Comp Off requests.",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setLoading(false);
+      setAdminLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!organisation_id) return;
+
+    if (isAdmin) {
+      setAdminLoading(true);
+      fetchCompOffRequests();
+    } else {
+      fetchCompOffRequests();
+    }
+  }, [
+    organisation_id,
+    isAdmin,
+    adminStatus,
+    adminCompensationType,
+    adminEmployeeId,
+    adminPage,
+  ]);
+
+  /* ================= ADMIN REVIEW ================= */
+
+  const openRequestDetails = async (request) => {
+    try {
+      setAdminActionLoading(true);
+
+      const requestId = request?._id || request?.id;
+      const res = await api.get(`/leave/compoff/requests/${requestId}`, {
+        params: { organisation_id },
+      });
+
+      const responseData = res?.data;
+      const details =
+        responseData?.data || responseData?.request || responseData || request;
+
+      setSelectedRequest(details);
+      setAdminDetailsOpen(true);
+    } catch (err) {
+      toast({
+        title: "Failed to load request details",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to load the request details.",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const openApproveModal = () => {
+    setApprovalForm({
+      expires_on: "",
+      admin_note: "",
+    });
+    setAdminErrors({});
+    setApproveOpen(true);
+  };
+
+  const openRejectModal = () => {
+    setRejectionReason("");
+    setAdminErrors({});
+    setRejectOpen(true);
+  };
+
+  const approveRequest = async () => {
+    if (!selectedRequest) return;
+
+    const compensationType = selectedRequest.compensation_type;
+
+    if (
+      compensationType === "LEAVE" &&
+      approvalForm.expires_on &&
+      approvalForm.expires_on < new Date().toISOString().split("T")[0]
+    ) {
+      setAdminErrors({
+        expires_on: "Expiry date cannot be earlier than today.",
+      });
+      return;
+    }
+
+    try {
+      setAdminActionLoading(true);
+
+      const payload =
+        compensationType === "LEAVE"
+          ? {
+              organisation_id,
+              expires_on: approvalForm.expires_on || null,
+              admin_note: approvalForm.admin_note.trim(),
+            }
+          : {
+              organisation_id,
+              admin_note: approvalForm.admin_note.trim(),
+            };
+
+      await api.put(
+        `/leave/compoff/requests/${
+          selectedRequest._id || selectedRequest.id
+        }/approve`,
+        payload,
+      );
+
+      toast({
+        title: "Comp Off request approved",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setApproveOpen(false);
+      setAdminDetailsOpen(false);
+      setSelectedRequest(null);
+      fetchCompOffRequests();
+    } catch (err) {
+      toast({
+        title: "Failed to approve Comp Off request",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to approve the request.",
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const rejectRequest = async () => {
+    if (!selectedRequest) return;
+
+    if (!rejectionReason.trim()) {
+      setAdminErrors({
+        rejection_reason: "Rejection reason is required.",
+      });
+      return;
+    }
+
+    if (rejectionReason.trim().length > 2000) {
+      setAdminErrors({
+        rejection_reason: "Rejection reason cannot exceed 2,000 characters.",
+      });
+      return;
+    }
+
+    try {
+      setAdminActionLoading(true);
+
+      await api.put(
+        `/leave/compoff/requests/${
+          selectedRequest._id || selectedRequest.id
+        }/reject`,
+        {
+          organisation_id,
+          rejection_reason: rejectionReason.trim(),
+        },
+      );
+
+      toast({
+        title: "Comp Off request rejected",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setRejectOpen(false);
+      setAdminDetailsOpen(false);
+      setSelectedRequest(null);
+      fetchCompOffRequests();
+    } catch (err) {
+      toast({
+        title: "Failed to reject Comp Off request",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to reject the request.",
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const openUserRequestDetails = async (request) => {
+    try {
+      setLoading(true);
+
+      const requestId = request?._id || request?.id;
+      const res = await api.get(`/leave/compoff/requests/${requestId}`, {
+        params: { organisation_id },
+      });
+
+      const responseData = res?.data;
+      const details =
+        responseData?.data || responseData?.request || responseData || request;
+
+      setUserSelectedRequest(details);
+      setUserDetailsOpen(true);
+    } catch (err) {
+      toast({
+        title: "Failed to load request details",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to load the request details.",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const closeUserDetails = () => {
+    setUserDetailsOpen(false);
+    setUserSelectedRequest(null);
+  };
+
+  const previewEvidence = async (file) => {
+    try {
+      setSelectedEvidence(file);
+      setEvidencePreviewLoading(true);
+      setEvidencePreviewOpen(true);
+
+      const evidencePath = file.url?.replace(/^\/api\/v1\/hrm/, "");
+
+      const res = await api.get(evidencePath, {
+        responseType: "blob",
+      });
+
+      const blobUrl = URL.createObjectURL(res.data);
+      setEvidencePreviewUrl(blobUrl);
+    } catch (err) {
+      setEvidencePreviewUrl("");
+      toast({
+        title: "Unable to preview evidence",
+        description:
+          err?.response?.data?.message ||
+          "The evidence file could not be opened.",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setEvidencePreviewLoading(false);
+    }
+  };
+
+  const closeEvidencePreview = () => {
+    if (evidencePreviewUrl) {
+      URL.revokeObjectURL(evidencePreviewUrl);
+    }
+    setEvidencePreviewUrl("");
+    setSelectedEvidence(null);
+    setEvidencePreviewOpen(false);
+  };
+
+  /* ================= FORM ================= */
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
+    setErrors((prev) => ({
+      ...prev,
+      [name]: "",
+    }));
+  };
+
+  const handleEvidenceChange = (e) => {
+    const files = Array.from(e.target.files || []);
+
+    if (files.length > 5) {
+      setErrors((prev) => ({
+        ...prev,
+        evidence: "You can upload a maximum of 5 files.",
+      }));
+      return;
+    }
+
+    const invalidFile = files.find((file) => {
+      const allowedTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf",
+      ];
+
+      return !allowedTypes.includes(file.type) || file.size > 5 * 1024 * 1024;
+    });
+
+    if (invalidFile) {
+      setErrors((prev) => ({
+        ...prev,
+        evidence: "Each file must be JPEG, PNG, WEBP or PDF and maximum 5MB.",
+      }));
+      return;
+    }
+
+    setEvidence(files);
+
+    setErrors((prev) => ({
+      ...prev,
+      evidence: "",
+    }));
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!form.worked_on) {
+      newErrors.worked_on = "Please select the worked date.";
+    }
+
+    if (!form.days) {
+      newErrors.days = "Please select the number of days.";
+    }
+
+    if (!form.compensation_type) {
+      newErrors.compensation_type = "Please select compensation type.";
+    }
+
+    if (!form.reason.trim()) {
+      newErrors.reason = "Reason is required.";
+    }
+
+    if (evidence.length < 1) {
+      newErrors.evidence = "Please upload at least one evidence file.";
+    }
+
+    setErrors(newErrors);
+
+    return Object.keys(newErrors).length === 0;
+  };
+
+  /* ================= SUBMIT ================= */
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+
+    try {
+      setSubmitting(true);
+
+      const formData = new FormData();
+
+      formData.append("organisation_id", organisation_id);
+      formData.append("worked_on", form.worked_on);
+      formData.append("days", form.days);
+      formData.append("compensation_type", form.compensation_type);
+      formData.append("reason", form.reason.trim());
+
+      //   evidence.forEach((file) => {
+      //     formData.append("evidence", file);
+      //   });
+      evidence.forEach((file) => {
+        formData.append("evidence", file);
+      });
+      //   await api.post("/leave/compoff/requests", formData);
+      await api.post("/leave/compoff/requests", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      toast({
+        // title: "Comp Off request submitted",
+        title: res?.data?.msg,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setForm({
+        worked_on: "",
+        days: "",
+        compensation_type: "",
+        reason: "",
+      });
+
+      setEvidence([]);
+      setErrors({});
+
+      onClose();
+
+      fetchCompOffRequests();
+    } catch (err) {
+      toast({
+        title: "Failed to submit Comp Off request",
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          "Unable to submit your request.",
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const closeModal = () => {
+    setForm({
+      worked_on: "",
+      days: "",
+      compensation_type: "",
+      reason: "",
+    });
+    setEvidence([]);
+    setErrors({});
+    onClose();
+  };
+
+  //newer
+  if (isAdmin) {
+    const adminStatusOptions = [
+      { id: "PENDING", label: "Pending" },
+      { id: "APPROVED", label: "Approved" },
+      { id: "REJECTED", label: "Rejected" },
+    ];
+
+    const compensationOptions = [
+      { id: "LEAVE", label: "Leave" },
+      { id: "ENCASHMENT", label: "Encashment" },
+    ];
+
+    return (
+      <Box fontFamily="Poppins" h="100vh" overflowY="auto" bg="#F6F7FB">
+        <Box
+          bg="white"
+          border="1px solid #cccccc"
+          borderRadius="14px"
+          shadow="sm"
+          overflow="hidden"
+        >
+          {/* ================= HEADER ================= */}
+          <Box py={3} pb={2}>
+            <Flex
+              justify="space-between"
+              align="center"
+              gap={3}
+              wrap="wrap"
+              ml={3}
+              mr={3}
+              mt={1}
+              mb={1}
+            >
+              <Text fontSize="22px" fontWeight="700" color="#000000" ml={4}>
+                Comp Off Requests
+              </Text>
+
+              {/* ================= SEARCH + FILTER ================= */}
+              <Flex align="center" gap={2}>
+                {/* Search */}
+                <Box
+                  position="relative"
+                  w={{
+                    base: "200px",
+                    md: "220px",
+                    lg: "320px",
+                  }}
+                  overflow="hidden"
+                >
+                  <InputGroup size="sm">
+                    <InputLeftElement pointerEvents="none">
+                      <SearchIcon color="#757575" mt={2} />
+                    </InputLeftElement>
+
+                    {!adminEmployeeId && (
+                      <Text
+                        position="absolute"
+                        left="30px"
+                        top="50%"
+                        transform="translateY(-50%)"
+                        fontSize={{
+                          base: "12px",
+                          sm: "12px",
+                          md: "11px",
+                          lg: "14px",
+                        }}
+                        fontFamily="Poppins"
+                        fontWeight="400"
+                        color="#757575"
+                        pointerEvents="none"
+                        whiteSpace="nowrap"
+                        zIndex={1}
+                      >
+                        Search by Employee ID
+                      </Text>
+                    )}
+
+                    <Input
+                      value={adminEmployeeId}
+                      onChange={(e) => {
+                        setAdminEmployeeId(e.target.value);
+                        setAdminPage(1);
+                      }}
+                      fontFamily="Poppins"
+                      h="39px"
+                      borderWidth="1.5px"
+                      borderColor="#cccccc"
+                      borderRadius="10px"
+                      pl="30px"
+                      _focus={{
+                        borderColor: "#cccccc",
+                        boxShadow: "none",
+                      }}
+                    />
+
+                    {adminEmployeeId && (
+                      <InputRightElement>
+                        <CloseButton
+                          size="sm"
+                          mt={1}
+                          onClick={() => {
+                            setAdminEmployeeId("");
+                            setAdminPage(1);
+                          }}
+                        />
+                      </InputRightElement>
+                    )}
+                  </InputGroup>
+                </Box>
+
+                {/* ================= COMPENSATION FILTER ================= */}
+                <Menu closeOnSelect={false}>
+                  <MenuButton
+                    as={Button}
+                    h="35px"
+                    bg="white"
+                    fontFamily="Poppins"
+                    fontSize="14px"
+                    color="#757575"
+                    borderWidth="1.5px"
+                    borderColor="#cccccc"
+                    borderRadius="8px"
+                    fontWeight={400}
+                    leftIcon={<FiFilter />}
+                    _hover={{
+                      bg: "white",
+                      borderColor: "#bdbdbd",
+                    }}
+                    _active={{
+                      bg: "white",
+                    }}
+                    _focus={{
+                      boxShadow: "none",
+                    }}
+                  >
+                    Filter
+                  </MenuButton>
+
+                  <MenuList
+                    minW="210px"
+                    p={3}
+                    borderRadius="10px"
+                    fontFamily="Poppins"
+                  >
+                    <Text
+                      fontSize="14px"
+                      fontWeight="600"
+                      mb={3}
+                      color="#111827"
+                    >
+                      Compensation Type
+                    </Text>
+
+                    <VStack align="start" spacing={3}>
+                      {compensationOptions.map((item) => (
+                        <Checkbox
+                          key={item.id}
+                          isChecked={adminCompensationType === item.id}
+                          onChange={() => {
+                            setAdminCompensationType(
+                              adminCompensationType === item.id ? "" : item.id,
+                            );
+                            setAdminPage(1);
+                          }}
+                          sx={{
+                            ".chakra-checkbox__control": {
+                              borderColor: "#cccccc",
+                            },
+                            ".chakra-checkbox__control[data-checked]": {
+                              bg: "#274066",
+                              borderColor: "#274066",
+                            },
+                          }}
+                        >
+                          <Text fontSize="14px">{item.label}</Text>
+                        </Checkbox>
+                      ))}
+                    </VStack>
+
+                    {adminCompensationType && (
+                      <Button
+                        mt={4}
+                        size="sm"
+                        variant="ghost"
+                        fontFamily="Poppins"
+                        onClick={() => {
+                          setAdminCompensationType("");
+                          setAdminPage(1);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </MenuList>
+                </Menu>
+              </Flex>
+            </Flex>
+          </Box>
+
+          {/* ================= DOTTED SEPARATOR ================= */}
+          <Box
+            w="100%"
+            h="1.5px"
+            bgImage="
+            repeating-linear-gradient(
+              to right,
+              #C7C7C7 0 6px,
+              transparent 6px 14px
+            )
+          "
+            mb={4}
+          />
+
+          {/* ================= STATUS FILTER ================= */}
+          <Flex gap={3} align="center" wrap="wrap" m={3} mt={0} mb={3}>
+            <Text fontWeight="600" minW="120px" ml={4} fontFamily="Poppins">
+              Status
+            </Text>
+
+            <HStack spacing={2} wrap="wrap">
+              {adminStatusOptions.map((s) => {
+                const active = adminStatus === s.id;
+
+                return (
+                  <Button
+                    key={s.id}
+                    size="sm"
+                    onClick={() => {
+                      setAdminStatus(active ? "" : s.id);
+                      setAdminPage(1);
+                    }}
+                    borderRadius="full"
+                    px={3}
+                    py={1.2}
+                    position="relative"
+                    _focus={{ boxShadow: "none" }}
+                    display="inline-flex"
+                    alignItems="center"
+                    gap={2}
+                    borderWidth="1px"
+                    borderColor={active ? "#000" : "#C7C7C7"}
+                    bg="#fff"
+                    color={active ? "#000" : "#C7C7C7"}
+                    boxShadow={active ? "sm" : "none"}
+                    height="38px"
+                  >
+                    <Text
+                      as="span"
+                      fontSize="sm"
+                      fontWeight={500}
+                      fontFamily="Poppins"
+                    >
+                      {s.label}
+                    </Text>
+
+                    {active && (
+                      <CloseButton
+                        position="absolute"
+                        top="-10px"
+                        right="4px"
+                        boxSize="20px"
+                        minW="20px"
+                        h="20px"
+                        p="0"
+                        fontSize="9px"
+                        bg="#E5F4EC"
+                        color="#000"
+                        borderRadius="full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAdminStatus("");
+                          setAdminPage(1);
+                        }}
+                        aria-label={`Clear ${s.label}`}
+                        _hover={{
+                          bg: "#C6EAD8",
+                        }}
+                      />
+                    )}
+                  </Button>
+                );
+              })}
+            </HStack>
+
+            {adminStatus && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setAdminStatus("");
+                  setAdminPage(1);
+                }}
+                ml={2}
+              >
+                Clear
+              </Button>
+            )}
+          </Flex>
+
+          {/* ================= DOTTED SEPARATOR ================= */}
+          <Box
+            w="100%"
+            h="1.5px"
+            bgImage="
+            repeating-linear-gradient(
+              to right,
+              #C7C7C7 0 6px,
+              transparent 6px 14px
+            )
+          "
+            mb={4}
+          />
+
+          {/* ================= TABLE ================= */}
+          {loading || adminLoading ? (
+            <Flex justify="center" align="center" minH="200px">
+              <Spinner />
+            </Flex>
+          ) : (
+            <Box overflowX="auto" px={{ base: 2, sm: 2, md: 2, lg: 0 }}>
+              <Table
+                variant="striped"
+                size="sm"
+                sx={{
+                  "& tbody tr:nth-of-type(odd) td": {
+                    background: "#f0f2f5",
+                  },
+                  "& tbody tr:nth-of-type(even) td": {
+                    background: "white",
+                  },
+                  "& td, & th": {
+                    border: "none !important",
+                  },
+                  "& tr": {
+                    border: "none !important",
+                  },
+                  "& thead th": {
+                    paddingBottom: "14px",
+                  },
+                  "& tbody tr:first-of-type td": {
+                    paddingTop: "12px",
+                  },
+                }}
+              >
+                <Thead
+                  sx={{
+                    th: {
+                      fontSize: "14px",
+                      textTransform: "none",
+                      fontWeight: "600",
+                      fontFamily: "'Poppins', sans-serif",
+                      color: "#000000",
+                    },
+                  }}
+                >
+                  <Tr>
+                    <Th>Employee</Th>
+                    <Th>Employee Id</Th>
+                    <Th>Worked On</Th>
+                    <Th>Days</Th>
+                    <Th>Compensation Type</Th>
+                    <Th>Reason</Th>
+                    <Th>Evidence</Th>
+                    <Th>Status</Th>
+                    <Th>Action</Th>
+                  </Tr>
+                </Thead>
+
+                <Tbody>
+                  {requests.length === 0 ? (
+                    <Tr>
+                      <Td colSpan={10}>
+                        <Text
+                          textAlign="center"
+                          py={8}
+                          color="gray.500"
+                          fontFamily="Poppins"
+                        >
+                          No Comp Off requests found
+                        </Text>
+                      </Td>
+                    </Tr>
+                  ) : (
+                    requests.map((item) => (
+                      <Tr key={item._id || item.id}>
+                        <Td>{item.employee_name || item.employee_id || "-"}</Td>
+                        <Td>{item.employee_id || "-"}</Td>
+
+                        <Td>
+                          {/* {item.worked_on || "-"} */}
+                          {formatBackendDate(item.worked_on)}
+                        </Td>
+
+                        <Td>{item.days ?? "-"}</Td>
+
+                        <Td>{item.compensation_type || "-"}</Td>
+
+                        <Td maxW="280px">{item.reason || "-"}</Td>
+
+                        <Td>
+                          {item.evidence?.length > 0 ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              leftIcon={<FiFileText />}
+                              onClick={() => previewEvidence(item.evidence[0])}
+                              fontFamily="Poppins"
+                              color="#274167"
+                              _hover={{
+                                bg: "#F3F6FA",
+                              }}
+                            >
+                              {item.evidence.length > 1
+                                ? `${item.evidence.length} Files`
+                                : "Evidence"}
+                            </Button>
+                          ) : (
+                            <Text color="gray.400">-</Text>
+                          )}
+                        </Td>
+
+                        <Td>
+                          <Badge
+                            borderRadius="full"
+                            px={3}
+                            py={1}
+                            fontFamily="Poppins"
+                            fontWeight="500"
+                            colorScheme={
+                              item.status === "APPROVED"
+                                ? "green"
+                                : item.status === "REJECTED"
+                                  ? "red"
+                                  : "orange"
+                            }
+                          >
+                            {item.status || "-"}
+                          </Badge>
+                        </Td>
+
+                        <Td>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openRequestDetails(item)}
+                            isLoading={
+                              adminActionLoading &&
+                              selectedRequest?._id === (item._id || item.id)
+                            }
+                          >
+                            <FiEye />
+                          </Button>
+                        </Td>
+                      </Tr>
+                    ))
+                  )}
+                </Tbody>
+              </Table>
+            </Box>
+          )}
+
+          {/* ================= PAGINATION ================= */}
+          <Flex justify="flex-end" gap={2} mt={4} mr={4} mb={4}>
+            <Button
+              size="sm"
+              variant="outline"
+              borderRadius="10px"
+              height="37px"
+              isDisabled={adminPage <= 1}
+              onClick={() => setAdminPage((page) => page - 1)}
+            >
+              Previous
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              borderRadius="10px"
+              height="37px"
+              onClick={() => setAdminPage((page) => page + 1)}
+              isDisabled={requests.length < adminLimit}
+            >
+              Next
+            </Button>
+          </Flex>
+        </Box>
+
+        {/* ================= REQUEST DETAILS ================= */}
+        <Modal
+          isOpen={adminDetailsOpen}
+          onClose={() => setAdminDetailsOpen(false)}
+          size="md"
+          isCentered
+          scrollBehavior="inside"
+        >
+          <ModalOverlay bg="rgba(30, 50, 70, 0.45)" />
+
+          <ModalContent
+            fontFamily="Poppins"
+            borderRadius="14px"
+            overflow="hidden"
+            maxW="460px"
+            m={3}
+          >
+            <ModalHeader px={5} pt={4} pb={3} borderBottom="1px dashed #D0D5DD">
+              <Text fontSize="18px" fontWeight="700" color="#172B4D">
+                Review Comp Off
+              </Text>
+              {selectedRequest && (
+                <Text mt={1} fontSize="10px" fontWeight="400" color="#98A2B3">
+                  Request{" "}
+                  {selectedRequest.request_number ||
+                    selectedRequest.request_id ||
+                    selectedRequest._id ||
+                    selectedRequest.id ||
+                    "CO-0001"}
+                  {" · "}
+                  {selectedRequest.status || "PENDING"}
+                </Text>
+              )}
+            </ModalHeader>
+
+            <ModalCloseButton
+              top="12px"
+              right="10px"
+              size="sm"
+              color="#667085"
+            />
+
+            <ModalBody px={5} py={4}>
+              {selectedRequest && (
+                <Box>
+                  {/* Employee */}
+                  <Flex align="center" justify="space-between" mb={4}>
+                    <Flex align="center" gap={3}>
+                      <Box
+                        w="34px"
+                        h="34px"
+                        borderRadius="8px"
+                        bg="#EEF2F8"
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="center"
+                      >
+                        <Text fontSize="11px" fontWeight="700" color="#274167">
+                          {(
+                            selectedRequest.employee_name ||
+                            selectedRequest.employee_id ||
+                            "PS"
+                          )
+                            .toString()
+                            .split(" ")
+                            .map((part) => part[0])
+                            .join("")
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </Text>
+                      </Box>
+
+                      <Box>
+                        <Text fontSize="12px" fontWeight="700" color="#172B4D">
+                          {selectedRequest.employee_name ||
+                            selectedRequest.employee_id ||
+                            "Employee"}
+                        </Text>
+                        <Text fontSize="9px" color="#98A2B3">
+                          {selectedRequest.employee_id || "Employee"} · Comp-off
+                          request
+                        </Text>
+                      </Box>
+                    </Flex>
+
+                    <Badge
+                      borderRadius="full"
+                      px={2.5}
+                      py={1}
+                      fontSize="9px"
+                      fontWeight="500"
+                      color="#946200"
+                      bg="#FFF4D6"
+                      textTransform="none"
+                    >
+                      <Box as="span" mr={1}>
+                        •
+                      </Box>
+                      {selectedRequest.status || "Pending"}
+                    </Badge>
+                  </Flex>
+
+                  {/* Summary */}
+                  <Box bg="#F4F6F9" borderRadius="9px" p={3} mb={4}>
+                    <Flex wrap="wrap" rowGap={4}>
+                      <Box w="50%">
+                        <Text fontSize="9px" color="#98A2B3" mb={1}>
+                          Worked on
+                        </Text>
+                        <Text fontSize="11px" fontWeight="600" color="#172B4D">
+                          {/* {selectedRequest.worked_on || "-"} */}
+                          {formatBackendDate(selectedRequest.worked_on)}
+                        </Text>
+                      </Box>
+
+                      <Box w="50%">
+                        <Text fontSize="9px" color="#98A2B3" mb={1}>
+                          No. of days
+                        </Text>
+                        <Text fontSize="11px" fontWeight="600" color="#172B4D">
+                          {selectedRequest.days != null
+                            ? `${selectedRequest.days} day${Number(selectedRequest.days) === 1 ? "" : "s"}`
+                            : "-"}
+                        </Text>
+                      </Box>
+
+                      <Box w="50%">
+                        <Text fontSize="9px" color="#98A2B3" mb={1}>
+                          Compensation
+                        </Text>
+                        <Text fontSize="11px" fontWeight="600" color="#172B4D">
+                          {selectedRequest.compensation_type === "LEAVE"
+                            ? "Comp Off leave"
+                            : selectedRequest.compensation_type || "-"}
+                        </Text>
+                      </Box>
+
+                      <Box w="50%">
+                        <Text fontSize="9px" color="#98A2B3" mb={1}>
+                          Expiry date
+                        </Text>
+                        <Text fontSize="11px" fontWeight="600" color="#172B4D">
+                          {/* {selectedRequest.expires_on || "Awaiting approval"} */}
+                          {selectedRequest.expires_on
+                            ? formatBackendDate(selectedRequest.expires_on)
+                            : "Awaiting approval"}
+                        </Text>
+                      </Box>
+                    </Flex>
+                  </Box>
+
+                  {/* Reason */}
+                  <Box mb={4}>
+                    <Text
+                      fontSize="10px"
+                      fontWeight="700"
+                      color="#172B4D"
+                      mb={1}
+                    >
+                      Reason for request
+                    </Text>
+                    <Text fontSize="10px" lineHeight="1.7" color="#667085">
+                      {selectedRequest.reason || "-"}
+                    </Text>
+                  </Box>
+
+                  {/* Evidence */}
+                  <Box mb={4}>
+                    <Text
+                      fontSize="10px"
+                      fontWeight="700"
+                      color="#172B4D"
+                      mb={2}
+                    >
+                      Evidence ({(selectedRequest.evidence || []).length})
+                    </Text>
+
+                    {(selectedRequest.evidence || []).length === 0 ? (
+                      <Text fontSize="10px" color="#98A2B3">
+                        No evidence available.
+                      </Text>
+                    ) : (
+                      <Flex direction="column" gap={2}>
+                        {selectedRequest.evidence.map((file, index) => (
+                          <Flex
+                            key={`${file.name || "evidence"}-${index}`}
+                            align="center"
+                            justify="space-between"
+                            border="1px solid #D0D5DD"
+                            borderRadius="9px"
+                            px={2}
+                            py={2}
+                            bg="white"
+                          >
+                            <Flex align="center" gap={2} minW={0}>
+                              <Box
+                                w="32px"
+                                h="32px"
+                                borderRadius="7px"
+                                bg="#EEF4FB"
+                                display="flex"
+                                alignItems="center"
+                                justifyContent="center"
+                                color="#274167"
+                                flexShrink={0}
+                              >
+                                <FiFileText size={16} />
+                              </Box>
+
+                              <Box minW={0}>
+                                <Text
+                                  fontSize="10px"
+                                  fontWeight="600"
+                                  color="#344054"
+                                  noOfLines={1}
+                                >
+                                  {file.name || `Evidence ${index + 1}`}
+                                </Text>
+                                <Text fontSize="8px" color="#98A2B3">
+                                  {file.content_type || "File"}
+                                  {file.size
+                                    ? ` · ${Math.ceil(file.size / 1024)} KB`
+                                    : ""}
+                                </Text>
+                              </Box>
+                            </Flex>
+
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              color="#274167"
+                              fontSize="10px"
+                              fontWeight="600"
+                              flexShrink={0}
+                              onClick={() => previewEvidence(file)}
+                            >
+                              View ↗
+                            </Button>
+                          </Flex>
+                        ))}
+                      </Flex>
+                    )}
+                  </Box>
+
+                  {/* Approval section */}
+                  {selectedRequest.status === "PENDING" && (
+                    <>
+                      <Box borderTop="1px dashed #D0D5DD" pt={3} mb={3}>
+                        <Flex align="center" gap={2} mb={2}>
+                          <Checkbox size="sm" isDisabled />
+                          <Text fontSize="9px" color="#667085">
+                            Set an expiry date{" "}
+                            <Box as="span" color="#98A2B3">
+                              (optional)
+                            </Box>
+                          </Text>
+                        </Flex>
+
+                        <Text
+                          fontSize="10px"
+                          fontWeight="700"
+                          color="#172B4D"
+                          mb={1}
+                        >
+                          Leave expires on
+                        </Text>
+
+                        <Input
+                          type="date"
+                          value={approvalForm.expires_on}
+                          min={new Date().toISOString().split("T")[0]}
+                          onChange={(e) =>
+                            setApprovalForm((prev) => ({
+                              ...prev,
+                              expires_on: e.target.value,
+                            }))
+                          }
+                          h="38px"
+                          fontSize="10px"
+                          borderColor="#D0D5DD"
+                          borderRadius="8px"
+                        />
+
+                        <Text fontSize="8px" color="#98A2B3" mt={1}>
+                          Unused credits expire after this date. Already-used
+                          leave is unaffected.
+                        </Text>
+                      </Box>
+
+                      <FormControl>
+                        <FormLabel fontSize="10px" mb={1} color="#172B4D">
+                          Admin note{" "}
+                          <Box as="span" color="#98A2B3" fontWeight="400">
+                            (optional for approval)
+                          </Box>
+                        </FormLabel>
+                        <Textarea
+                          value={approvalForm.admin_note}
+                          placeholder="Add a note, or a reason for rejecting…"
+                          onChange={(e) =>
+                            setApprovalForm((prev) => ({
+                              ...prev,
+                              admin_note: e.target.value,
+                            }))
+                          }
+                          minH="70px"
+                          fontSize="10px"
+                          borderColor="#D0D5DD"
+                          borderRadius="8px"
+                        />
+                      </FormControl>
+                    </>
+                  )}
+                </Box>
+              )}
+            </ModalBody>
+
+            {selectedRequest?.status === "PENDING" ? (
+              <ModalFooter borderTop="1px solid #EAECF0" px={5} py={3} gap={2}>
+                <Button
+                  flex={1}
+                  h="38px"
+                  bg="white"
+                  color="#B54745"
+                  border="1px solid #F0C9C7"
+                  borderRadius="8px"
+                  fontSize="10px"
+                  onClick={openRejectModal}
+                >
+                  Reject Request
+                </Button>
+
+                <Button
+                  flex={1.35}
+                  h="38px"
+                  bg="#274167"
+                  color="white"
+                  borderRadius="8px"
+                  fontSize="10px"
+                  onClick={approveRequest}
+                  isLoading={adminActionLoading}
+                  _hover={{ bg: "#1F3143" }}
+                >
+                  ✓&nbsp;&nbsp;Approve &amp; Credit Leave
+                </Button>
+              </ModalFooter>
+            ) : (
+              <ModalFooter px={5} py={3}>
+                <Button onClick={() => setAdminDetailsOpen(false)}>
+                  Close
+                </Button>
+              </ModalFooter>
+            )}
+          </ModalContent>
+        </Modal>
+
+        {/* ================= ADMIN EVIDENCE PREVIEW ================= */}
+        <Modal
+          isOpen={evidencePreviewOpen}
+          onClose={closeEvidencePreview}
+          size="5xl"
+          isCentered
+        >
+          <ModalOverlay bg="rgba(15, 23, 42, 0.65)" />
+
+          <ModalContent
+            borderRadius="14px"
+            overflow="hidden"
+            fontFamily="Poppins"
+          >
+            <ModalHeader borderBottom="1px solid #EAECF0" fontSize="16px">
+              {selectedEvidence?.name || "Evidence Preview"}
+            </ModalHeader>
+
+            <ModalCloseButton />
+
+            <ModalBody bg="#F8FAFC" minH="550px" p={4}>
+              {evidencePreviewLoading ? (
+                <Flex justify="center" align="center" minH="500px">
+                  <Spinner size="lg" />
+                </Flex>
+              ) : evidencePreviewUrl &&
+                selectedEvidence?.content_type?.startsWith("image/") ? (
+                <Flex justify="center" align="center" minH="500px">
+                  <Box
+                    as="img"
+                    src={evidencePreviewUrl}
+                    alt={selectedEvidence?.name || "Evidence"}
+                    maxH="75vh"
+                    maxW="100%"
+                    objectFit="contain"
+                    borderRadius="8px"
+                    boxShadow="sm"
+                  />
+                </Flex>
+              ) : evidencePreviewUrl &&
+                selectedEvidence?.content_type === "application/pdf" ? (
+                <Box
+                  as="iframe"
+                  src={evidencePreviewUrl}
+                  title={selectedEvidence?.name || "Evidence PDF"}
+                  w="100%"
+                  h="75vh"
+                  border="none"
+                  borderRadius="8px"
+                  bg="white"
+                />
+              ) : (
+                <Flex justify="center" align="center" minH="500px">
+                  <Text color="gray.500">Unable to preview this file.</Text>
+                </Flex>
+              )}
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+
+        {/* ================= APPROVE MODAL ================= */}
+        <Modal
+          isOpen={approveOpen}
+          onClose={() => setApproveOpen(false)}
+          isCentered
+        >
+          <ModalOverlay />
+
+          <ModalContent fontFamily="Poppins" borderRadius="12px">
+            <ModalHeader>Approve Comp Off</ModalHeader>
+
+            <ModalCloseButton />
+
+            <ModalBody>
+              <Box display="flex" flexDirection="column" gap={4}>
+                {selectedRequest?.compensation_type === "LEAVE" && (
+                  <FormControl isInvalid={!!adminErrors.expires_on}>
+                    <FormLabel>Expires On</FormLabel>
+
+                    <Input
+                      type="date"
+                      min={new Date().toISOString().split("T")[0]}
+                      value={approvalForm.expires_on}
+                      onChange={(e) =>
+                        setApprovalForm((prev) => ({
+                          ...prev,
+                          expires_on: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <FormErrorMessage>
+                      {adminErrors.expires_on}
+                    </FormErrorMessage>
+                  </FormControl>
+                )}
+
+                <FormControl>
+                  <FormLabel>Admin Note</FormLabel>
+
+                  <Textarea
+                    value={approvalForm.admin_note}
+                    placeholder="Enter admin note"
+                    onChange={(e) =>
+                      setApprovalForm((prev) => ({
+                        ...prev,
+                        admin_note: e.target.value,
+                      }))
+                    }
+                  />
+                </FormControl>
+              </Box>
+            </ModalBody>
+
+            <ModalFooter>
+              <Button
+                variant="ghost"
+                mr={3}
+                onClick={() => setApproveOpen(false)}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                bg="#274167"
+                color="white"
+                _hover={{
+                  bg: "#1f3143",
+                }}
+                onClick={approveRequest}
+                isLoading={adminActionLoading}
+              >
+                Approve
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* ================= REJECT MODAL ================= */}
+        <Modal
+          isOpen={rejectOpen}
+          onClose={() => setRejectOpen(false)}
+          isCentered
+        >
+          <ModalOverlay />
+
+          <ModalContent fontFamily="Poppins" borderRadius="12px">
+            <ModalHeader>Reject Comp Off</ModalHeader>
+
+            <ModalCloseButton />
+
+            <ModalBody>
+              <FormControl isInvalid={!!adminErrors.rejection_reason}>
+                <FormLabel>Rejection Reason</FormLabel>
+
+                <Textarea
+                  value={rejectionReason}
+                  placeholder="Enter rejection reason"
+                  maxLength={2000}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                />
+
+                <FormErrorMessage>
+                  {adminErrors.rejection_reason}
+                </FormErrorMessage>
+              </FormControl>
+            </ModalBody>
+
+            <ModalFooter>
+              <Button
+                variant="ghost"
+                mr={3}
+                onClick={() => setRejectOpen(false)}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                colorScheme="red"
+                onClick={rejectRequest}
+                isLoading={adminActionLoading}
+              >
+                Reject
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </Box>
+    );
+  }
+
+  return (
+    <Box fontFamily="Poppins" h="100vh" overflowY="auto" bg="#F6F7FB">
+      <Box
+        bg="white"
+        border="1px solid #cccccc"
+        borderRadius="14px"
+        p={4}
+        px="0"
+        mb={4}
+      >
+        {/* Header */}
+        <Flex justify="space-between" align="center" mb={4} px={4}>
+          <Text fontSize="xl" fontWeight="700" color="#111827">
+            Comp Off
+          </Text>
+
+          <Button
+            leftIcon={<FiPlus />}
+            bg="#274167"
+            color="white"
+            borderRadius="8px"
+            fontWeight={500}
+            _hover={{ bg: "#1f3143" }}
+            onClick={onOpen}
+          >
+            Apply Comp Off
+          </Button>
+        </Flex>
+
+        {/* Dashed separator */}
+        <Box
+          w="100%"
+          h="1.5px"
+          bgImage="repeating-linear-gradient(
+            to right,
+            #C7C7C7 0 6px,
+            transparent 6px 14px
+          )"
+          mb={4}
+        />
+
+        {/* ================= STATUS FILTER ================= */}
+        <Flex gap={3} align="center" wrap="wrap" m={3} mt={0} mb={3}>
+          <Text fontWeight="600" minW="120px" ml={4} fontFamily="Poppins">
+            Status
+          </Text>
+
+          <HStack spacing={2} wrap="wrap">
+            {[
+              { id: "PENDING", label: "Pending" },
+              { id: "APPROVED", label: "Approved" },
+              { id: "REJECTED", label: "Rejected" },
+            ].map((s) => {
+              const active = adminStatus === s.id;
+
+              return (
+                <Button
+                  key={s.id}
+                  size="sm"
+                  onClick={() => {
+                    setAdminStatus(active ? "" : s.id);
+                    setAdminPage(1);
+                  }}
+                  borderRadius="full"
+                  px={3}
+                  py={1.2}
+                  position="relative"
+                  _focus={{ boxShadow: "none" }}
+                  display="inline-flex"
+                  alignItems="center"
+                  gap={2}
+                  borderWidth="1px"
+                  borderColor={active ? "#000" : "#C7C7C7"}
+                  bg="#fff"
+                  color={active ? "#000" : "#C7C7C7"}
+                  boxShadow={active ? "sm" : "none"}
+                  height="38px"
+                >
+                  <Text
+                    as="span"
+                    fontSize="sm"
+                    fontWeight={500}
+                    fontFamily="Poppins"
+                  >
+                    {s.label}
+                  </Text>
+
+                  {active && (
+                    <CloseButton
+                      position="absolute"
+                      top="-10px"
+                      right="4px"
+                      boxSize="20px"
+                      minW="20px"
+                      h="20px"
+                      p="0"
+                      fontSize="9px"
+                      bg="#E5F4EC"
+                      color="#000"
+                      borderRadius="full"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAdminStatus("");
+                        setAdminPage(1);
+                      }}
+                      aria-label={`Clear ${s.label}`}
+                      _hover={{
+                        bg: "#C6EAD8",
+                      }}
+                    />
+                  )}
+                </Button>
+              );
+            })}
+          </HStack>
+
+          {adminStatus && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setAdminStatus("");
+                setAdminPage(1);
+              }}
+              ml={2}
+            >
+              Clear
+            </Button>
+          )}
+        </Flex>
+
+        {/* ================= DOTTED SEPARATOR ================= */}
+        <Box
+          w="100%"
+          h="1.5px"
+          bgImage="repeating-linear-gradient(
+            to right,
+            #C7C7C7 0 6px,
+            transparent 6px 14px
+          )"
+          mb={4}
+        />
+
+        {/* List */}
+        {loading ? (
+          <Flex justify="center" align="center" minH="200px">
+            <Spinner />
+          </Flex>
+        ) : (
+          <Box overflowX="auto">
+            <Table
+              variant="striped"
+              size="sm"
+              sx={{
+                "& tbody tr:nth-of-type(odd) td": {
+                  background: "#f0f2f5",
+                },
+                "& tbody tr:nth-of-type(even) td": {
+                  background: "white",
+                },
+                "& td, & th": {
+                  border: "none !important",
+                },
+                "& tr": {
+                  border: "none !important",
+                },
+                "& thead th": {
+                  paddingBottom: "14px",
+                },
+                "& tbody tr:first-of-type td": {
+                  paddingTop: "12px",
+                },
+              }}
+            >
+              <Thead
+                sx={{
+                  th: {
+                    fontSize: "14px",
+                    textTransform: "none",
+                    fontWeight: "600",
+                    fontFamily: "'Poppins', sans-serif",
+                    color: "#000000",
+                  },
+                }}
+              >
+                <Tr>
+                  <Th>Employee</Th>
+                  <Th>Employee Id</Th>
+                  <Th>Date</Th>
+                  <Th>Days</Th>
+                  <Th>Compensation Type</Th>
+                  {/* <Th>Reason</Th> */}
+                  <Th>Evidence</Th>
+                  <Th>Status</Th>
+                  <Th>Expiry</Th>
+                  <Th>Available Days</Th>
+                  <Th>Action</Th>
+                </Tr>
+              </Thead>
+
+              <Tbody>
+                {requests.length === 0 ? (
+                  <Tr>
+                    <Td colSpan={8}>
+                      <Text
+                        textAlign="center"
+                        py={8}
+                        color="gray.500"
+                        fontFamily="Poppins"
+                      >
+                        No Comp Off requests found
+                      </Text>
+                    </Td>
+                  </Tr>
+                ) : (
+                  requests.map((item) => (
+                    <Tr key={item._id || item.id}>
+                      <Td>{item.employee_name || "-"}</Td>
+                      <Td>{item.employee_id || "-"}</Td>
+                      <Td>
+                        {formatBackendDate(item.worked_on)}
+                        {/* {item.worked_on || "-"} */}
+                      </Td>
+
+                      <Td>{item.days ?? "-"}</Td>
+
+                      <Td>{item.compensation_type || "-"}</Td>
+
+                      <Td>
+                        {item.evidence?.length > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            leftIcon={<FiFileText />}
+                            onClick={() => previewEvidence(item.evidence[0])}
+                            fontFamily="Poppins"
+                            color="#274167"
+                            _hover={{
+                              bg: "#F3F6FA",
+                            }}
+                          >
+                            {item.evidence.length > 1
+                              ? `${item.evidence.length} Files`
+                              : "Evidence"}
+                          </Button>
+                        ) : (
+                          <Text color="gray.400">-</Text>
+                        )}
+                      </Td>
+
+                      {/* <Td maxW="300px">{item.reason || "-"}</Td> */}
+
+                      <Td>
+                        {/* {item.status || "-"} */}
+                        <Badge
+                          borderRadius="full"
+                          px={3}
+                          py={1}
+                          fontFamily="Poppins"
+                          fontWeight="500"
+                          colorScheme={
+                            item.status === "APPROVED"
+                              ? "green"
+                              : item.status === "REJECTED"
+                                ? "red"
+                                : "orange"
+                          }
+                        >
+                          {item.status || "-"}
+                        </Badge>
+                      </Td>
+
+                      <Td>
+                        {/* {item.expires_on || "-"} */}
+                        {item.expires_on
+                          ? formatBackendDate(item.expires_on)
+                          : "-"}
+                      </Td>
+
+                      <Td>{item.available_days ?? "-"}</Td>
+                      <Td>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label="View Comp Off request"
+                          onClick={() => openUserRequestDetails(item)}
+                        >
+                          <FiEye />
+                        </Button>
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </Tbody>
+            </Table>
+          </Box>
+        )}
+      </Box>
+
+      {/* ================= USER REQUEST DETAILS ================= */}
+      <Modal
+        isOpen={userDetailsOpen}
+        onClose={closeUserDetails}
+        size="lg"
+        isCentered
+      >
+        <ModalOverlay />
+        <ModalContent borderRadius="12px" fontFamily="Poppins">
+          <ModalHeader>
+            <Text fontSize="lg" fontWeight="700">
+              Review Comp Off
+            </Text>
+            {userSelectedRequest && (
+              <Text fontSize="xs" color="gray.500" fontWeight="400" mt={1}>
+                Request{" "}
+                {userSelectedRequest._id || userSelectedRequest.id || "-"} ·{" "}
+                {userSelectedRequest.status || "-"}
+              </Text>
+            )}
+          </ModalHeader>
+          <ModalCloseButton />
+
+          <ModalBody>
+            {userSelectedRequest && (
+              <Box>
+                <Flex
+                  bg="#F5F7FA"
+                  borderRadius="10px"
+                  p={4}
+                  gap={6}
+                  flexWrap="wrap"
+                >
+                  <Box minW="140px">
+                    <Text fontSize="xs" color="gray.500">
+                      Worked on
+                    </Text>
+                    <Text fontSize="sm" fontWeight="600" mt={1}>
+                      {/* {userSelectedRequest.worked_on
+                        ? new Date(userSelectedRequest.worked_on).toLocaleDateString("en-GB", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "-"} */}
+                      {/* {userSelectedRequest.worked_on
+                        ? String(userSelectedRequest.worked_on)
+                            .slice(0, 10)
+                            .split("-")
+                            .reverse()
+                            .join("/")
+                        : "-"} */}
+                      {formatBackendDate(userSelectedRequest.worked_on)}
+                    </Text>
+                  </Box>
+
+                  <Box minW="100px">
+                    <Text fontSize="xs" color="gray.500">
+                      No. of days
+                    </Text>
+                    <Text fontSize="sm" fontWeight="600" mt={1}>
+                      {userSelectedRequest.days ?? "-"}{" "}
+                      {userSelectedRequest.days === 1 ? "day" : "days"}
+                    </Text>
+                  </Box>
+
+                  <Box minW="140px">
+                    <Text fontSize="xs" color="gray.500">
+                      Compensation
+                    </Text>
+                    <Text fontSize="sm" fontWeight="600" mt={1}>
+                      {userSelectedRequest.compensation_type === "LEAVE"
+                        ? "Comp Off leave"
+                        : "Encashment"}
+                    </Text>
+                  </Box>
+
+                  <Box minW="140px">
+                    <Text fontSize="xs" color="gray.500">
+                      Expiry date
+                    </Text>
+                    <Text fontSize="sm" fontWeight="600" mt={1}>
+                      {/* {userSelectedRequest.expires_on || "Awaiting approval"} */}
+                      {userSelectedRequest.expires_on
+                        ? formatBackendDate(userSelectedRequest.expires_on)
+                        : "Awaiting approval"}
+                    </Text>
+                  </Box>
+                </Flex>
+
+                <Box mt={5}>
+                  <Text fontSize="sm" fontWeight="600" mb={2}>
+                    Reason for request
+                  </Text>
+                  <Text fontSize="sm" color="gray.600">
+                    {userSelectedRequest.reason || "-"}
+                  </Text>
+                </Box>
+
+                <Box mt={5}>
+                  <Text fontSize="sm" fontWeight="600" mb={3}>
+                    Evidence ({(userSelectedRequest.evidence || []).length})
+                  </Text>
+
+                  <Flex direction="column" gap={2}>
+                    {(userSelectedRequest.evidence || []).length === 0 ? (
+                      <Text fontSize="sm" color="gray.500">
+                        No evidence available.
+                      </Text>
+                    ) : (
+                      userSelectedRequest.evidence.map((file, index) => (
+                        <Flex
+                          key={file.id || index}
+                          align="center"
+                          justify="space-between"
+                          border="1px solid #E2E8F0"
+                          borderRadius="8px"
+                          p={3}
+                        >
+                          <Box>
+                            <Text fontSize="sm" fontWeight="600">
+                              {file.name || `Evidence ${index + 1}`}
+                            </Text>
+                            <Text fontSize="xs" color="gray.500">
+                              {file.content_type || "File"}
+                              {file.size
+                                ? ` · ${Math.ceil(file.size / 1024)} KB`
+                                : ""}
+                            </Text>
+                          </Box>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => previewEvidence(file)}
+                          >
+                            View ↗
+                          </Button>
+                        </Flex>
+                      ))
+                    )}
+                  </Flex>
+                </Box>
+              </Box>
+            )}
+          </ModalBody>
+
+          <ModalFooter>
+            <Button onClick={closeUserDetails}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* ================= EVIDENCE PREVIEW ================= */}
+      <Modal
+        isOpen={evidencePreviewOpen}
+        onClose={closeEvidencePreview}
+        size="5xl"
+        isCentered
+      >
+        <ModalOverlay />
+        <ModalContent borderRadius="12px" fontFamily="Poppins">
+          <ModalHeader>
+            {selectedEvidence?.name || "Evidence Preview"}
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody minH="500px">
+            {evidencePreviewLoading ? (
+              <Flex justify="center" align="center" minH="450px">
+                <Spinner />
+              </Flex>
+            ) : evidencePreviewUrl &&
+              selectedEvidence?.content_type?.startsWith("image/") ? (
+              <Flex justify="center" align="center">
+                <Box
+                  as="img"
+                  src={evidencePreviewUrl}
+                  alt={selectedEvidence?.name || "Evidence"}
+                  maxH="70vh"
+                  maxW="100%"
+                  objectFit="contain"
+                />
+              </Flex>
+            ) : evidencePreviewUrl &&
+              selectedEvidence?.content_type === "application/pdf" ? (
+              <Box
+                as="iframe"
+                src={evidencePreviewUrl}
+                title={selectedEvidence?.name || "Evidence PDF"}
+                w="100%"
+                h="70vh"
+                border="0"
+              />
+            ) : (
+              <Text color="gray.500">Unable to preview this file.</Text>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* ================= APPLY MODAL ================= */}
+
+      <Modal isOpen={isOpen} onClose={closeModal} size="lg" isCentered>
+        <ModalOverlay />
+
+        <ModalContent borderRadius="12px" fontFamily="Poppins">
+          <ModalHeader>Apply Comp Off</ModalHeader>
+
+          <ModalCloseButton />
+
+          <ModalBody>
+            <Box display="flex" flexDirection="column" gap={4}>
+              {/* Worked On */}
+              <FormControl isRequired isInvalid={!!errors.worked_on}>
+                <FormLabel>Worked On</FormLabel>
+
+                <Input
+                  type="date"
+                  name="worked_on"
+                  value={form.worked_on}
+                  max={new Date().toISOString().split("T")[0]}
+                  onChange={handleChange}
+                />
+
+                <FormErrorMessage>{errors.worked_on}</FormErrorMessage>
+              </FormControl>
+
+              {/* Days */}
+              <FormControl isRequired isInvalid={!!errors.days}>
+                <FormLabel>Days</FormLabel>
+
+                <Select
+                  name="days"
+                  value={form.days}
+                  placeholder="Select days"
+                  onChange={handleChange}
+                >
+                  <option value="0.5">0.5</option>
+                  <option value="1">1</option>
+                </Select>
+
+                <FormErrorMessage>{errors.days}</FormErrorMessage>
+              </FormControl>
+
+              {/* Compensation Type */}
+              <FormControl isRequired isInvalid={!!errors.compensation_type}>
+                <FormLabel>Compensation Type</FormLabel>
+
+                <Select
+                  name="compensation_type"
+                  value={form.compensation_type}
+                  placeholder="Select compensation type"
+                  onChange={handleChange}
+                >
+                  <option value="LEAVE">Leave</option>
+
+                  <option value="ENCASHMENT">Encashment</option>
+                </Select>
+
+                <FormErrorMessage>{errors.compensation_type}</FormErrorMessage>
+              </FormControl>
+
+              {/* Reason */}
+              <FormControl isRequired isInvalid={!!errors.reason}>
+                <FormLabel>Reason</FormLabel>
+
+                <Textarea
+                  name="reason"
+                  value={form.reason}
+                  placeholder="Enter reason"
+                  onChange={handleChange}
+                />
+
+                <FormErrorMessage>{errors.reason}</FormErrorMessage>
+              </FormControl>
+
+              {/* Evidence */}
+              <FormControl isRequired isInvalid={!!errors.evidence}>
+                <FormLabel>Evidence</FormLabel>
+
+                <Button
+                  as="label"
+                  htmlFor="compoff-evidence"
+                  variant="outline"
+                  leftIcon={<FiUpload />}
+                  cursor="pointer"
+                  w="fit-content"
+                >
+                  Upload Evidence
+                </Button>
+
+                <Input
+                  id="compoff-evidence"
+                  type="file"
+                  display="none"
+                  multiple
+                  accept=".jpg,.jpeg,.png,.webp,.pdf"
+                  onChange={handleEvidenceChange}
+                />
+
+                {evidence.length > 0 && (
+                  <Box mt={2}>
+                    {evidence.map((file) => (
+                      <Text key={file.name} fontSize="sm" color="gray.600">
+                        {file.name}
+                      </Text>
+                    ))}
+                  </Box>
+                )}
+
+                <FormErrorMessage>{errors.evidence}</FormErrorMessage>
+
+                <Text fontSize="12px" color="gray.500" mt={1}>
+                  Maximum 5 files, 5MB each.
+                </Text>
+              </FormControl>
+            </Box>
+          </ModalBody>
+
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={closeModal}>
+              Cancel
+            </Button>
+
+            <Button
+              bg="#274167"
+              color="white"
+              _hover={{ bg: "#1f3143" }}
+              onClick={handleSubmit}
+              isLoading={submitting}
+            >
+              Submit
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </Box>
+  );
+}

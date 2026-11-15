@@ -1,0 +1,228 @@
+/* :root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+  
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #535bf2;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+  button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme:light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+} */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
+/* index.css — make sure this file is imported by index.js */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* page background so empty area isn't white */
+body {
+  background: #f4f7fb;
+  /* gray.50-ish */
+  /* overflow-x: hidden;  */
+}
+
+html,
+body,
+#root,
+.App {
+  /* background-color: #f4f7fb !important; */
+  min-height: 100%;
+}
+
+.check-modal {
+  padding: 25px !important;
+}
+
+.check-modal .css-qlig70 {
+  padding: 0px !important;
+}
+
+.check-modal .css-14teswy {
+  width: 100%;
+}
+
+.check-modal .css-14teswy {
+  justify-content: center;
+}
+
+/* .check-modal .css-1i6fmcn{
+  width: 100%;
+}
+.check-modal .css-iohxn1 {
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+  right:0 !important;
+}
+.check-modal .css-iohxn1 svg{
+  width: 100% !important;
+  height: 100% !important;
+}
+.check-modal .css-pv5xcw{
+  -webkit-padding-end: var(--chakra-space-8);
+  padding-inline-end: var(--chakra-space-8);
+  width: 100%;
+  flex: 1;
+  height: auto
+}
+.check-modal .css-1i6fmcn
+{
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+} */
+/* new */
+.check-modal .css-pv5xcw {
+  padding-inline-end: 0;
+  width: 100%;
+  flex: 1;
+  height: 100%;
+  text-align: center;
+}
+
+.check-modal .css-1i6fmcn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 40px;
+}
+
+.check-modal .css-10zfwvb {
+  padding-left: 0px;
+  padding-top: 0px;
+  margin-top: -6px;
+}
+
+.check-modal .css-k0waxj {
+  padding-inline: 0px;
+  padding-bottom: 0px;
+}
+
+.check-modal .css-iohxn1 {
+  width: 100%;
+  height: 100%;
+  font-size: 16px;
+  min-width: 0;
+  flex: 1;
+  position: relative;
+  top: unset;
+  transform: unset;
+  justify-content: flex-end;
+}
+
+.check-modal .css-iohxn1 svg {
+  width: 16px !important;
+  height: 100% !important;
+  margin-left: auto;
+  margin-right: -7px;
+}
+
+.css-qvg1oo{
+  overflow: visible !important;
+}
+.css-m853vw{
+  width: 100% !important;
+  max-width: max-content !important;
+}
+.chakra-button.chakra-menu__menu-button.css-w7vypn{
+  order: 1;
+}
+.chakra-button.css-4b1ogz{
+  margin-left: -10px;
+}
+/* .chakra-button.css-4b1ogz:hover{
+  margin-left: -10px;
+} */
+.chakra-button.css-1b8udu9{
+    margin-left: -10px;
+
+}
+.addshift .css-ktd6ms{
+  width: 100%;
+}
+.shiftwrapper .css-ktd6ms{
+  width: 100%;
+}
+
+.shiftwrapper .css-1uqcewo,.shiftwrapper .css-1p426d8{
+  background-color: white !important;
+  background: white !important;
+}
+
+.shiftwrapper .fixedform {
+  grid-template-columns: 430px 1fr !important;
+}
+.shiftwrapper{
+  border-radius: 14px;
+  border: 1px solid #c4c4c4;
+}

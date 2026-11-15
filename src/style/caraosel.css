@@ -1,0 +1,9 @@
+/* carousel.css */
+.slick-dots li button:before {
+  color: #274167;
+}
+
+.slick-prev,
+.slick-next {
+  z-index: 1;
+}

@@ -1,0 +1,895 @@
+# Performance Management API Guide
+
+## Start here
+
+Base URL:
+
+```text
+{{base_url}}/api/v1/hrm/performance
+```
+
+Replace `{{base_url}}` with your backend host. Every endpoint below is relative to this base URL.
+
+Required headers:
+
+```http
+Authorization: Bearer <full-session-token>
+Content-Type: application/json
+```
+
+`Content-Type` is needed for POST and PUT requests. Use a full authenticated session, not an enrollment or MFA token.
+
+- Do not send `organisation_id`, actor ID, or role. The backend gets them from the session.
+- If a tenant ID is supplied, it must match the logged-in account.
+- Send numeric codes as numbers: `1`, not `"1"`.
+- MongoDB IDs are 24-character strings in JSON. Employee IDs are strings such as `"EMP001"`.
+- Response timestamps use ISO format. Display them in the organization's timezone.
+- The IDs, names and dates in examples are sample values. Replace IDs with records from your organization.
+
+## Frontend flow
+
+1. Owner creates a self-assessment template and reviewer template(s).
+2. Owner saves performance settings.
+3. The [reporting assignment CRUD APIs](reporting-to-api.md) save each employee's `reporting_to` record.
+4. Backend creates upcoming appraisals and opens due self-assessments.
+5. Employee reads their appraisal and submits the ten answers.
+6. Backend assigns managers and HR from `reporting_to` automatically.
+7. Reviewers read their assigned reviews and submit their ten answers.
+8. After every reviewer submits, the employee and owner can see the final result.
+
+**There is no employee nomination screen or nomination API.**
+
+## Endpoint list
+
+| # | Method | Endpoint | Access |
+| --- | --- | --- | --- |
+| 1 | POST | `/create_template` | Owner |
+| 2 | PUT | `/update_template/:id` | Owner |
+| 3 | GET | `/get_templates` | Owner |
+| 4 | PUT | `/save_settings` | Owner |
+| 5 | GET | `/get_settings` | Owner |
+| 6 | GET | `/get_dashboard` | Owner / admin |
+| 7 | GET | `/get_my_appraisals` | Logged-in employee's own appraisals |
+| 8 | GET | `/get_appraisal/:id` | Appraised employee / owner / admin |
+| 9 | POST | `/submit_self_assessment/:id` | Appraised employee only |
+| 10 | GET | `/get_my_reviews` | Logged-in reviewer's assignments |
+| 11 | POST | `/submit_review/:id` | Assigned reviewer only |
+| 12 | POST | `/send_missed_deadline_email/:id` | Owner / admin |
+| 13 | POST | `/reopen_self_assessment/:id` | Owner / admin |
+
+## Common query parameters
+
+Only these list endpoints support pagination: `/get_templates`, `/get_dashboard`, `/get_my_appraisals`, `/get_my_reviews`.
+
+| Parameter | Required | Default | Allowed values |
+| --- | --- | --- | --- |
+| `page` | No | `1` | Integer, 1 or greater |
+| `limit` | No | `20` | Integer, 1–100 |
+| `status` | No | All statuses | 1–6; **dashboard only** |
+
+Example: `/get_dashboard?page=1&limit=20&status=5`.
+
+Only the dashboard returns `page` and `total`. Other list endpoints return `{ msg, result: [...] }` without pagination totals. Do not send employee IDs to list endpoints; their scope is determined by the logged-in account. No search, date-range, template-type or pending-review query filter is currently implemented.
+
+## Status codes
+
+| Code | Meaning | Frontend action |
+| --- | --- | --- |
+| `1` | Upcoming | Show the planned opening date |
+| `2` | Self-assessment open | Show the employee's form and deadline |
+| `3` | Self-assessment expired | Employee cannot submit; owner/admin may reopen |
+| `4` | Awaiting automatic reviewer assignment | Show submission saved; inspect `configuration_error` |
+| `5` | In review | Show reviewer submission progress |
+| `6` | Completed | Show the result to the employee and owner |
+
+`status` is the stored value. `form_status` reflects expiry immediately, even before cron changes stored status 2 to 3. Use `form_status` for the displayed status.
+
+## 1. Create a template
+
+**POST `/create_template`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner |
+| Path parameters | None. |
+| Query parameters | None. |
+| Body | Required JSON below. |
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Nonblank, maximum 200 characters |
+| `type` | number | Yes | `1` = self-assessment, `2` = reviewer feedback |
+| `questions` | array | Yes | Exactly 10 questions |
+| `questions[].id` | integer | Yes | Unique within the form |
+| `questions[].text` | string | Yes | Nonblank, maximum 2000 characters |
+
+Request body:
+
+```json
+{
+  "name": "Annual self-assessment",
+  "type": 1,
+  "questions": [
+    {"id": 1, "text": "Delivery quality"},
+    {"id": 2, "text": "Meeting deadlines"},
+    {"id": 3, "text": "Communication"},
+    {"id": 4, "text": "Teamwork"},
+    {"id": 5, "text": "Problem solving"},
+    {"id": 6, "text": "Ownership"},
+    {"id": 7, "text": "Technical knowledge"},
+    {"id": 8, "text": "Learning and improvement"},
+    {"id": 9, "text": "Professional conduct"},
+    {"id": 10, "text": "Overall contribution"}
+  ]
+}
+```
+
+Create a reviewer template with the same structure and `type: 2`. Question IDs need not be 1–10, but must be unique integers.
+
+Success: **201 Created**.
+
+```json
+{
+  "msg": "Template created successfully",
+  "result": {
+    "_id": "111111111111111111111111"
+  }
+}
+```
+
+## 2. Update a template
+
+**PUT `/update_template/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner |
+| Path parameters | `id`: template `_id`. |
+| Query parameters | None. |
+| Body | Same complete body as [Create a template](#1-create-a-template). |
+
+Example URL: `/update_template/111111111111111111111111`.
+
+Send all three fields: `name`, `type`, and all ten `questions`. This is not a partial update. The template's `type` cannot change. Existing assigned forms keep their saved questions; edits apply to future assignments.
+
+Success: **200 OK**.
+
+```json
+{
+  "msg": "Template updated successfully",
+  "result": {
+    "_id": "111111111111111111111111"
+  }
+}
+```
+
+## 3. List templates
+
+**GET `/get_templates`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner |
+| Path parameters | None. |
+| Query parameters | Optional `page`, `limit`. |
+| Body | None. |
+
+Example URL: `/get_templates?page=1&limit=20`.
+
+Success: **200 OK**. Each item contains the template fields and all ten questions. Empty list example:
+
+```json
+{
+  "msg": "Templates fetched successfully",
+  "result": []
+}
+```
+
+| Item field | Meaning |
+| --- | --- |
+| `_id` | Template ID used in settings and update URLs |
+| `organisation_id` | Owning organization |
+| `name`, `type`, `questions` | Saved template body |
+| `created_at`, `updated_at` | ISO timestamps |
+
+Templates are ordered by newest creation first.
+
+## 4. Save settings
+
+**PUT `/save_settings`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner |
+| Path parameters | None. |
+| Query parameters | None. |
+| Body | Complete settings object; choose the applicable modes below. |
+
+This endpoint creates or updates the organization's settings. Send the full configuration, not only the changed field.
+
+### Settings fields
+
+| Field | Type | Required when | Meaning |
+| --- | --- | --- | --- |
+| `schedule_type` | number | Always | `1` = fiscal year, `2` = work anniversary |
+| `activation_offset_days` | integer | Always | Signed number of calendar days relative to appraisal date |
+| `cap_type` | number | Always | `1` = company-wide, `2` = by band |
+| `company_cap_percent` | number | `cap_type = 1` | Percentage from 0 to 100 |
+| `band_caps` | array | `cap_type = 2` | At least one band mapping |
+| `band_caps[].band_id` | ObjectId string | Each band mapping | Existing organization band |
+| `band_caps[].cap_percent` | number | Each band mapping | Percentage from 0 to 100 |
+| `self_template_id` | ObjectId string | Always | A template with `type = 1` |
+| `reviewer_template_mode` | number | Always | `1` = shared, `2` = position-based |
+| `shared_reviewer_template_id` | ObjectId string | `reviewer_template_mode = 1` | A template with `type = 2` |
+| `role_templates` | array | `reviewer_template_mode = 2` | At least one position mapping |
+| `role_templates[].position_id` | ObjectId string | Each position mapping | Active position belonging to the organization |
+| `role_templates[].template_id` | ObjectId string | Each position mapping | A template with `type = 2` |
+
+Duplicate band or role mappings are rejected. Include fields for your selected modes. Owner-only settings access uses the account role; reviewer template mapping uses the reviewer's employee profile `role`.
+
+### Example A: anniversary, company cap, shared reviewer form
+
+Request body:
+
+```json
+{
+  "schedule_type": 2,
+  "activation_offset_days": -10,
+  "cap_type": 1,
+  "company_cap_percent": 10,
+  "self_template_id": "111111111111111111111111",
+  "reviewer_template_mode": 1,
+  "shared_reviewer_template_id": "222222222222222222222222"
+}
+```
+
+For mode `2`, keep the array name `role_templates`, but send `position_id` in each entry. The reviewer template is selected using the reviewer’s `employee_employment.position_id`. Shared mode (`1`) still uses `shared_reviewer_template_id`. Existing mappings using `role_id` must be saved again with position IDs.
+
+### Example B: fiscal year, band caps, position-based reviewer forms
+
+Request body:
+
+```json
+{
+  "schedule_type": 1,
+  "activation_offset_days": 1,
+  "cap_type": 2,
+  "band_caps": [
+    {
+      "band_id": "555555555555555555555555",
+      "cap_percent": 10
+    },
+    {
+      "band_id": "666666666666666666666666",
+      "cap_percent": 15
+    }
+  ],
+  "self_template_id": "111111111111111111111111",
+  "reviewer_template_mode": 2,
+  "role_templates": [
+    {
+      "position_id": "777777777777777777777777",
+      "template_id": "222222222222222222222222"
+    },
+    {
+      "position_id": "888888888888888888888888",
+      "template_id": "999999999999999999999999"
+    }
+  ]
+}
+```
+
+The choices are independent: fiscal or anniversary can use either cap mode and either reviewer-template mode.
+
+### Activation examples
+
+For an appraisal date of **17 November 2026**:
+
+| `activation_offset_days` | Form opens on |
+| --- | --- |
+| `-10` | 7 November 2026 |
+| `0` | 17 November 2026 |
+| `1` | 18 November 2026 |
+
+Offsets larger than five days are allowed. Values must fit supported calendar dates (years 100–9999).
+
+### Fiscal-year date
+
+Do not send `fiscal_month` or `fiscal_day`. Fiscal mode reads the existing `company_calendar.financial_year_start` saved through leave/year settings, then stores its month and day in performance settings. Configure that calendar first.
+
+### Save response
+
+Success: **200 OK**. Example for configuration A; database-generated metadata is omitted from this example only:
+
+```json
+{
+  "msg": "Settings saved successfully",
+  "result": {
+    "organisation_id": "ORG001",
+    "schedule_type": 2,
+    "activation_offset_days": -10,
+    "cap_type": 1,
+    "company_cap_percent": 10,
+    "self_template_id": "111111111111111111111111",
+    "reviewer_template_mode": 1,
+    "shared_reviewer_template_id": "222222222222222222222222"
+  }
+}
+```
+
+The actual settings record also includes `_id`, `created_at`, `updated_at`, and fiscal fields when applicable. A planning problem may add `planning_error` and `planning_error_at`; check those fields even after a successful save.
+
+Saving settings recalculates upcoming appraisals immediately. Already-open or completed appraisals keep their saved cap, dates and questions.
+
+## 5. Get settings
+
+**GET `/get_settings`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner |
+| Path parameters | None. |
+| Query parameters | None. |
+| Body | None. |
+
+Success: **200 OK**. `result` has the same settings-record shape as the save response. If settings have not been created:
+
+```json
+{
+  "msg": "Settings fetched successfully",
+  "result": null
+}
+```
+
+## 6. Get dashboard
+
+**GET `/get_dashboard`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner or admin |
+| Path parameters | None. |
+| Query parameters | Optional `page`, `limit`, `status`. |
+| Body | None. |
+
+Example URL: `/get_dashboard?page=1&limit=20&status=2`.
+
+Success: **200 OK**. Owner response example:
+
+```json
+{
+  "msg": "Dashboard fetched successfully",
+  "counts": {
+    "upcoming": 0,
+    "self_submitted": 0,
+    "overdue": 0
+  },
+  "page": 1,
+  "total": 1,
+  "result": [
+    {
+      "_id": "333333333333333333333333",
+      "cycle_key": "anniversary:2026",
+      "appraisal_date": "2026-11-16T18:30:00.000Z",
+      "opens_at": "2026-11-06T18:30:00.000Z",
+      "self_deadline_at": "2026-12-06T18:30:00.000Z",
+      "status": 2,
+      "form_status": 2,
+      "self_submitted": false,
+      "reviewer_progress": {
+        "submitted": 0,
+        "total": 0,
+        "text": "0 of 0 submitted"
+      },
+      "employee_id": "EMP001",
+      "employee_code": "E001",
+      "name": "Ananya Sen",
+      "joining_date": "2023-11-17T00:00:00.000Z",
+      "confirmation_date": "2024-05-17T00:00:00.000Z",
+      "department": "Engineering",
+      "configuration_error": null,
+      "result": null
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `counts.upcoming` | Number of status-1 appraisals |
+| `counts.self_submitted` | Number with a submitted self-assessment, including completed appraisals |
+| `counts.overdue` | Expired appraisals plus open appraisals whose deadline has passed |
+| `total` | Number of rows matching the selected status, before pagination |
+| `result[].reviewer_progress` | Submitted reviewer count, total reviewers, and display text |
+| `result[].configuration_error` | Configuration problem to resolve, or `null` |
+| `result[].result` | Final score/increment or `null`; visible to owner/appraised employee |
+
+Counts cover all organization cycles and do not change with the status filter. The filter uses stored `status`, not `form_status`; status 3 alone may not include overdue records still stored as status 2. Rows are ordered by appraisal date, newest first. Department and employment dates may be `null` when unavailable.
+
+An admin inspecting another employee does not receive that employee's final `result` field.
+
+## 7. Get my appraisals
+
+**GET `/get_my_appraisals`**
+
+| Item | Value |
+| --- | --- |
+| Access | Logged-in employee's own appraisals |
+| Path parameters | None. |
+| Query parameters | Optional `page`, `limit`. |
+| Body | None. |
+
+Example URL: `/get_my_appraisals?page=1&limit=20`.
+
+Success: **200 OK**. Response is `{ msg: "Appraisals fetched successfully", result: [...] }`; each item has the same row shape shown in the dashboard example, including `result: null` until complete. It does not include question details, reviewer names, counts, page or total. Use the detail endpoint to open a form.
+
+Empty list response:
+
+```json
+{
+  "msg": "Appraisals fetched successfully",
+  "result": []
+}
+```
+
+## 8. Get appraisal details
+
+**GET `/get_appraisal/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Appraised employee, owner, or admin |
+| Path parameters | `id`: appraisal `_id`, not a review ID. |
+| Query parameters | None. |
+| Body | None. |
+
+Example URL: `/get_appraisal/333333333333333333333333`.
+
+Success: **200 OK**. The response contains the dashboard row fields plus `self_assessment` (when permitted) and `reviewers`.
+
+Additional fields for an employee opening their self-assessment (this JSON is a response excerpt):
+
+```json
+{
+  "self_assessment": {
+    "questions": [
+      {"id": 1, "text": "Delivery quality"},
+      {"id": 2, "text": "Meeting deadlines"},
+      {"id": 3, "text": "Communication"},
+      {"id": 4, "text": "Teamwork"},
+      {"id": 5, "text": "Problem solving"},
+      {"id": 6, "text": "Ownership"},
+      {"id": 7, "text": "Technical knowledge"},
+      {"id": 8, "text": "Learning and improvement"},
+      {"id": 9, "text": "Professional conduct"},
+      {"id": 10, "text": "Overall contribution"}
+    ],
+    "submission": null
+  },
+  "reviewers": []
+}
+```
+
+These fields appear inside `{ "msg": "Appraisal fetched successfully", "result": { ... } }` alongside the appraisal row fields.
+
+After completion, the employee/owner sees these fields inside the same `result` object (response excerpt):
+
+```json
+{
+  "status": 6,
+  "form_status": 6,
+  "self_submitted": true,
+  "reviewer_progress": {
+    "submitted": 2,
+    "total": 2,
+    "text": "2 of 2 submitted"
+  },
+  "result": {
+    "score": 80,
+    "increment_percent": 8
+  },
+  "reviewers": [
+    {
+      "reviewer_employee_id": "EMP002",
+      "name": "Akash Kumar",
+      "submitted": true,
+      "total_score": 90
+    },
+    {
+      "reviewer_employee_id": "EMP003",
+      "name": "Priya Shah",
+      "submitted": true,
+      "total_score": 70
+    }
+  ]
+}
+```
+
+### Detail visibility
+
+| Viewer | Self-assessment | Reviewer names / submitted flags | Reviewer totals | Final result |
+| --- | --- | --- | --- | --- |
+| Appraised employee | Own questions and submission | Yes | Yes; pending totals are `null` | Yes |
+| Owner | Questions and submission | Yes | Yes | Yes |
+| Admin inspecting another employee | Only after self-submission | Yes | No | No |
+| Another employee, including an assigned reviewer | No access to this endpoint's appraisal | No | No | No |
+
+Reviewer answer remarks are not exposed in appraisal details. Reviewers read their own form through `/get_my_reviews`.
+
+## 9. Submit self-assessment
+
+**POST `/submit_self_assessment/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Appraised employee only |
+| Path parameters | `id`: appraisal `_id`. |
+| Query parameters | None. |
+| Body | Ten answers; full example below. |
+
+Example URL: `/submit_self_assessment/333333333333333333333333`.
+
+### Answer fields
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `answers` | array | Yes | Exactly one answer for each of the ten assigned questions |
+| `answers[].question_id` | integer | Yes | Match an ID from the saved form; no duplicates |
+| `answers[].score` | integer | Yes | 0–10 |
+| `answers[].remarks` | string | Yes | Blank allowed; maximum 5000 characters |
+
+Request body:
+
+```json
+{
+  "answers": [
+    {"question_id": 1, "score": 8, "remarks": "Met sprint deadlines."},
+    {"question_id": 2, "score": 8, "remarks": ""},
+    {"question_id": 3, "score": 8, "remarks": ""},
+    {"question_id": 4, "score": 8, "remarks": ""},
+    {"question_id": 5, "score": 8, "remarks": ""},
+    {"question_id": 6, "score": 8, "remarks": ""},
+    {"question_id": 7, "score": 8, "remarks": ""},
+    {"question_id": 8, "score": 8, "remarks": ""},
+    {"question_id": 9, "score": 8, "remarks": ""},
+    {"question_id": 10, "score": 8, "remarks": ""}
+  ]
+}
+```
+
+Use IDs from `self_assessment.questions`, not IDs from a newly edited template. Do not send `total_score`, `submitted_at`, employee IDs or reviewer IDs; the backend computes or resolves those values.
+
+Success: **200 OK**. `result.answers` contains all ten submitted answers. The example below omits the answers array only to avoid repeating it:
+
+```json
+{
+  "msg": "Self-assessment submitted successfully",
+  "result": {
+    "total_score": 80,
+    "submitted_at": "2026-11-12T09:00:00.000Z"
+  }
+}
+```
+
+The server returns the original submission on a duplicate request; a later request cannot change its answers.
+
+Submission is rejected at or after the deadline, even if the expiry job has not run. After a successful response, call `/get_appraisal/:id` again to read the new status:
+
+- `5`: reviewers were assigned automatically.
+- `4`: answers are saved, but reporting or template setup needs attention. Read `configuration_error`. The worker retries assignment every five minutes.
+
+A successful submission response contains the submission, not the updated appraisal status.
+
+## 10. Get my assigned reviews
+
+**GET `/get_my_reviews`**
+
+| Item | Value |
+| --- | --- |
+| Access | Logged-in assigned reviewer |
+| Path parameters | None. |
+| Query parameters | Optional `page`, `limit`. |
+| Body | None. |
+
+Example URL: `/get_my_reviews?page=1&limit=20`.
+
+Success: **200 OK**. Pending and submitted reviews are both returned. Each review has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `_id` | **Review ID** to pass to `/submit_review/:id` |
+| `organisation_id` | Organization ID |
+| `appraisal_id` | Appraisal this review belongs to |
+| `reviewer_employee_id` | Logged-in assigned reviewer |
+| `questions` | All ten reviewer questions copied at assignment |
+| `submission` | `null` while pending; otherwise answers, total score and submission time |
+| `next_reminder_at` | ISO timestamp while pending; `null` after submission |
+| `created_at`, `updated_at` | ISO timestamps |
+| `employee` | Appraised employee's code, name, joining/confirmation dates and department; may be `null` if appraisal is unavailable |
+
+Example response; the actual `questions` array has ten entries and is omitted from this example only:
+
+```json
+{
+  "msg": "Assigned reviews fetched successfully",
+  "result": [
+    {
+      "_id": "444444444444444444444444",
+      "organisation_id": "ORG001",
+      "appraisal_id": "333333333333333333333333",
+      "reviewer_employee_id": "EMP002",
+      "next_reminder_at": "2026-11-14T09:00:00.000Z",
+      "submission": null,
+      "created_at": "2026-11-12T09:00:00.000Z",
+      "updated_at": "2026-11-12T09:00:00.000Z",
+      "employee": {
+        "employee_id": "EMP001",
+        "employee_code": "E001",
+        "name": "Ananya Sen",
+        "joining_date": "2023-11-17T00:00:00.000Z",
+        "confirmation_date": "2024-05-17T00:00:00.000Z",
+        "department": "Engineering"
+      }
+    }
+  ]
+}
+```
+
+An empty assignment list returns `result: []`. Sort order is newest assignment first. This endpoint is the way to retrieve a reviewer form; there is no separate review-detail endpoint.
+
+## 11. Submit reviewer feedback
+
+**POST `/submit_review/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Assigned reviewer only, including when the reviewer is an admin |
+| Path parameters | `id`: review `_id` from `/get_my_reviews`. |
+| Query parameters | None. |
+| Body | Same ten-answer format as [Submit self-assessment](#9-submit-self-assessment). |
+
+Example URL: `/submit_review/444444444444444444444444`.
+
+Use `questions[].id` from the assigned review as `answers[].question_id`. Send all ten answers with integer scores and remarks. Do not use the appraisal ID in this URL.
+
+Success: **200 OK**. The example below omits the returned ten-answer array only to avoid repeating it:
+
+```json
+{
+  "msg": "Review submitted successfully",
+  "result": {
+    "total_score": 80,
+    "submitted_at": "2026-11-13T09:00:00.000Z"
+  }
+}
+```
+
+The actual `result` also includes `answers`. Repeated submission returns the saved submission. It cannot replace a score. Submission clears `next_reminder_at`. The backend calculates the final appraisal result once all assigned reviewers submit.
+
+## 12. Send missed-deadline email
+
+**POST `/send_missed_deadline_email/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner or admin |
+| Path parameters | `id`: appraisal `_id`. |
+| Query parameters | None. |
+| Body | Required empty JSON object: `{}`. |
+
+Example URL: `/send_missed_deadline_email/333333333333333333333333`.
+
+Request body:
+
+```json
+{}
+```
+
+Success: **200 OK**. This confirms the email is queued, not that SMTP delivery has completed.
+
+```json
+{
+  "msg": "Missed-deadline email queued successfully"
+}
+```
+
+Available only when the self-assessment deadline has passed and the employee has not submitted. The email asks the employee to reply with a reason. Repeating the request for the same deadline queues one email. No `result` field is returned.
+
+Replies go to the configured sender mailbox. This module does not read or save incoming email replies.
+
+## 13. Reopen self-assessment
+
+**POST `/reopen_self_assessment/:id`**
+
+| Item | Value |
+| --- | --- |
+| Access | Owner or admin |
+| Path parameters | `id`: appraisal `_id`. |
+| Query parameters | None. |
+| Body | Required empty JSON object: `{}`. |
+
+Example URL: `/reopen_self_assessment/333333333333333333333333`.
+
+Request body:
+
+```json
+{}
+```
+
+Success: **200 OK**. Example deadline for a form reopened on 12 December:
+
+```json
+{
+  "msg": "Self-assessment reopened successfully",
+  "result": {
+    "self_deadline_at": "2026-12-17T09:00:00.000Z"
+  }
+}
+```
+
+Only an overdue, unsubmitted form can be reopened. It becomes status 2 for five calendar days and a new email is queued. Existing questions and cap are preserved. Retrying while that reopened window is active does not extend it. A further reopen is allowed after the new deadline passes.
+
+## Automatic reviewer source: reporting_to
+
+Performance reads this collection. Owners and admins create, read, update and delete its records through the [Reporting Manager and HR API](reporting-to-api.md) under `/api/v1/hrm/employee`.
+
+One document should identify the employee being appraised and their organization:
+
+```json
+{
+  "organisation_id": "ORG001",
+  "employee_id": "EMP001",
+  "reporting_manager": {
+    "employee_id": "EMP002",
+    "name": "Akash Kumar"
+  },
+  "hr": {
+    "employee_id": "EMP003",
+    "name": "Priya Shah"
+  },
+  "additional_reporting_manager": [
+    {
+      "employee_id": "EMP004",
+      "name": "Additional Manager"
+    }
+  ],
+  "additonal_hr": [
+    {
+      "employee_id": "EMP005",
+      "name": "Additional HR"
+    }
+  ]
+}
+```
+
+| Field | Expected value |
+| --- | --- |
+| `organisation_id` | Organization of the employee being appraised |
+| `employee_id` | Employee being appraised, not the manager |
+| `reporting_manager` | Primary manager object; `"reporting manager"` is also accepted |
+| `hr` | Primary HR object |
+| `additional_reporting_manager` | Optional array of manager objects |
+| `additonal_hr` | Optional array of HR objects; `additional_hr` is also accepted |
+
+Each person object needs an `employee_id`. Names are display metadata; reviewer identity and role come from existing employee records.
+
+The backend combines all configured entries and removes duplicate employee IDs. At least one reviewer is required. It rejects self-review, invalid IDs, inactive employees, cross-organization employees, missing template mappings, and multiple reporting documents for the same employee/organization.
+
+If assignment fails, the self-assessment remains saved in status 4. Fix the record using the reporting CRUD API, or correct performance settings. The worker retries automatically. No partial reviewer list or partial batch of assignment emails is committed.
+
+Reporting changes after successful assignment apply to future appraisals only. Existing reviewers and their saved questions stay unchanged. The reporting CRUD API enforces one record per organization/employee with a unique index.
+
+Removed endpoints: `/get_eligible_reviewers/:id` and `/nominate_reviewers/:id`.
+
+## Errors and troubleshooting
+
+Module errors return a readable `msg`:
+
+```json
+{
+  "msg": "Self-assessment is closed or expired"
+}
+```
+
+| HTTP status | Meaning | Typical action |
+| --- | --- | --- |
+| `400` | Invalid body, ID, pagination, question or score | Correct the request |
+| `401` | Missing/invalid authentication | Use a valid full-session token |
+| `403` | Role or tenant access denied | Check the logged-in account |
+| `404` | Record missing or not accessible | Check the ID and ownership |
+| `409` | Workflow conflict, missing configuration or concurrent duplicate | Read `msg`; fix setup or retry if requested |
+| `500` | Unexpected infrastructure failure | Check backend logs |
+
+Authentication middleware can return its existing auth error structure before the request reaches the performance controller.
+
+| Problem | Where to check | Fix |
+| --- | --- | --- |
+| Settings cannot save in fiscal mode | Error `msg` | Configure `company_calendar.financial_year_start` |
+| Settings cannot save without a timezone | Error `msg` | Configure organization or active headquarters timezone |
+| Upcoming form does not open | Appraisal `configuration_error` | Check employee band cap, self template and employee working email |
+| Self-assessment saved but status remains 4 | Appraisal `configuration_error` | Check `reporting_to`, active reviewers, reviewer templates and emails |
+| Some employees have no planned cycles | Settings `planning_error` | Check employee joining dates and scheduling configuration |
+| Email is queued but not received | Existing email queue and service3 logs | Check Kafka consumer, SMTP and delivery status |
+
+A status-4 configuration issue is not a failed self-submission. Do not ask the employee to fill the form again.
+
+## Scheduling and result rules
+
+| Rule | Behavior |
+| --- | --- |
+| Self-assessment window | 30 local calendar days from actual activation |
+| Reopened window | 5 local calendar days |
+| First reviewer reminder | 2 local calendar days after assignment |
+| Later reminders | Every 2 local calendar days while pending |
+| Reminder after submission | Cancelled if still queued; checked again just before SMTP |
+| Final result | Saved when every assigned reviewer has submitted |
+| Snapshot behavior | Assigned questions and activated cap do not change with later settings edits |
+
+Scoring:
+
+```text
+score = average of all reviewer totals
+increment_percent = cap_percent × score / 100
+```
+
+Example: reviewers score 90 and 70; average = 80. With a 10% cap, the final increment is 8%. Self-assessment scores are not part of this calculation. Score and increment are stored to two decimal places; increment uses the unrounded average.
+
+Calendar assumptions:
+
+- Timezone: `organization.timezone`, falling back to the active headquarters `location.timezone`.
+- Joining date: `hire_date`, then `start_date`, then `probation_start_date`.
+- Confirmation date shown in responses: `confirmation_date`, falling back to `probation_end_date`.
+- Existing employment/fiscal date-only fields are interpreted as stored date-only values.
+- First anniversary is one year after joining. February 29 becomes February 28 in a non-leap year.
+- Initial setup includes activation dates up to 30 days in the past; it does not create older unplanned cycles automatically.
+- Planning covers current/next appraisal years and years around the configured offset. Existing upcoming records are retained/recalculated, including after downtime. There is no five-day planning limit.
+- Settings changes recalculate upcoming records; obsolete upcoming cycles from a previous schedule mode are removed. Activated/completed records remain unchanged.
+
+## Backend jobs and deployment
+
+| Service3 job | Schedule (UTC) | Purpose |
+| --- | --- | --- |
+| Planning | `0 0 * * *` | Create/recalculate upcoming appraisals using each organization's local calendar |
+| Workflow worker | `*/5 * * * *` | Open forms, expire forms, retry automatic assignments and queue reviewer reminders |
+| Email relay | `* * * * *` | Publish saved performance email intents to the existing Kafka email topic |
+
+Jobs also catch up at startup. Duplicate requests and overlapping workers are protected by conditional writes and unique indexes. Performance uses ordinary MongoDB reads and writes; no replica set is required.
+
+Four performance collections are used: `performance_settings`, `performance_form_templates`, `performance_appraisals`, `performance_reviews`. Reporting data comes from `reporting_to`; email intents reuse `emailnotification`.
+
+Unique indexes cover organization settings, organization/employee/cycle, and organization/appraisal/reviewer. Due-date indexes support worker queries. Index installation runs before performance API work and worker scheduling.
+
+Self-assessment is saved before automatic assignment. Reviewer assignments validate all reviewers first, then save each assignment and email intent with duplicate protection. The worker retries interrupted assignments and final scoring. Kafka carries the saved email job identity; the existing email worker handles SMTP claims, retries and uncertain delivery outcomes. No new npm dependency or Kafka topic is required.
+
+Deploy service1 and service3 together. Required infrastructure:
+
+- MongoDB (standalone is supported), plus index-creation permissions.
+- Existing Kafka email topic/consumer and configured SMTP.
+- Valid organization/headquarters timezone.
+- A monitored sender mailbox for missed-deadline replies.
+
+Performance does not use sessions or multi-document transactions. Writes commit individually; interrupted workflow steps are retried by the worker.
+
+Shared workflow code is copied into service3 because services have separate Docker build contexts. After editing shared performance source, run:
+
+```sh
+node scripts/sync-performance.mjs
+node scripts/sync-performance.mjs --check
+```
+
+## Verification commands
+
+```sh
+# Validation and permissions.
+node --test service1/test/performance.test.js service1/test/route-access.test.js
+
+# Workflow and HTTP behavior: use an isolated MongoDB test database (standalone supported).
+PERFORMANCE_TEST_MONGO_URL='mongodb://127.0.0.1:27028/?directConnection=true' node --test service1/test/performance-integration.test.js
+
+# Existing service1 and service3 regression suites.
+node --test service1/test/*.test.js service3/test/*.test.js
+```
+
+The integration test creates and drops its own `performance_test_*` database. It skips if `PERFORMANCE_TEST_MONGO_URL` is unset. It checks automatic assignments, tenant checks, duplicate requests, concurrent reviewers, snapshots, deadlines, large offsets and email replay. Live Kafka transport and real SMTP delivery require deployment-environment smoke testing.
+
+Previous verification: 43 targeted checks passed after automatic assignment was added; 34 relevant checks passed after the controller style rewrite. A broader run reported four existing attendance/reporting/scheduling failures (178 passed, 4 failed, 24 skipped): attendance session counts, daily attendance late-mode handling, shared scheduling file synchronization, and rejecting punches after an expired shift. Those failures were outside the performance changes.

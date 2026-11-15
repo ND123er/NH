@@ -1,0 +1,234 @@
+
+/* ========= Global Calendar Base ========= */
+
+.fc .fc-event {
+  display: none !important;
+}
+
+.fc {
+  font-family: "Poppins", sans-serif;
+  border: none;
+}
+
+/* ========= Remove All FullCalendar Borders ========= */
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border: none !important;
+}
+
+.fc-scrollgrid,
+.fc-scrollgrid *,
+.fc-scrollgrid-section,
+.fc-scrollgrid-section * {
+  border: none !important;
+}
+
+/* Remove top & left grid lines */
+.fc .fc-daygrid-day {
+  border: none !important;
+}
+
+/* Remove border around month header */
+.fc .fc-scrollgrid-section-header td {
+  border: none !important;
+}
+
+/* Remove top border above weekdays */
+.fc .fc-col-header {
+  border: none !important;
+}
+
+/* Remove FullCalendar outer grid border (that top line) */
+.fc-theme-standard .fc-scrollgrid {
+  border: none !important;
+}
+
+/* Safety: remove any remaining borders on header/body cells */
+.fc-theme-standard .fc-col-header,
+.fc-theme-standard .fc-daygrid-body {
+  border: none !important;
+}
+
+/* Also remove header row separator if present */
+.fc-theme-standard .fc-col-header-cell {
+  border-bottom: none !important;
+}
+
+/* ========= Toolbar (if you ever show it) ========= */
+.fc .fc-toolbar-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937; /* gray-800 */
+}
+
+.fc .fc-toolbar-chunk .fc-button {
+  background: transparent;
+  border: none;
+  color: #374151; /* gray-700 */
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.fc .fc-toolbar-chunk .fc-button:hover {
+  color: #111827; /* darker hover */
+}
+
+/* ========= Weekday headers (Mon, Tue, ...) ========= */
+.fc .fc-col-header-cell {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280; /* gray-500 */
+  text-align: center;
+  padding: 8px 0;
+  border: none;
+}
+
+.fc .fc-col-header-cell-cushion {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ========= Day Cell Layout ========= */
+.fc .fc-daygrid-day-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px; /* compact like in the design */
+}
+
+/* ========= Day Numbers as Circles ========= */
+.fc .fc-daygrid-day-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto; /* center in cell */
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827; /* gray-900 */
+  transition: background 0.2s, color 0.2s;
+  text-decoration: none !important;
+}
+
+/* ========= Today’s Date ========= */
+/* Remove the default yellow background on the cell */
+.fc-theme-standard .fc-day-today,
+.fc .fc-day-today {
+  background: transparent !important;
+}
+
+/* Only keep the blue circular highlight */
+.fc .fc-day-today .fc-daygrid-day-number {
+  background-color: #1a355c;
+  color: white;
+  font-weight: 600;
+}
+
+/* ========= Hover effect on day ========= */
+.fc .fc-daygrid-day:hover .fc-daygrid-day-number {
+  background: #e5e7eb; /* gray-200 */
+}
+
+/* ========= Days outside current month ========= */
+.fc .fc-day-other .fc-daygrid-day-number {
+  color: #d1d5db; /* gray-300 */
+}
+
+/* ========= Events (holidays) inside cells ========= */
+.fc .fc-event {
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+/* ========= Scrollbar for holiday list under calendar ========= */
+.holiday-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 transparent; /* gray.300 */
+}
+
+.holiday-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.holiday-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.holiday-scroll::-webkit-scrollbar-thumb {
+  background-color: #cbd5e0; /* gray.300 */
+  border-radius: 999px;
+}
+
+/* .fc-daygrid-day.has-holiday .fc-daygrid-day-number {
+  background-color: #1a355c;
+  color: white;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+} */
+
+/* ========= TODAY ========= */
+/* remove default FC background */
+.fc-theme-standard .fc-day-today,
+.fc .fc-day-today {
+  background: transparent !important;
+}
+
+/* ========= HOLIDAY ========= */
+/* holiday = filled blue circle */
+.fc-daygrid-day.has-holiday .fc-daygrid-day-number {
+  background-color: #1a355c;
+  color: white;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-weight: 600;
+}
+
+/* ----------------------------
+   TODAY (only when NOT a holiday)
+   show empty blue ring
+   ---------------------------- */
+.fc .fc-daygrid-day.fc-day-today:not(.has-holiday) .fc-daygrid-day-number {
+  background: transparent !important;
+  color: #1a355c !important;
+  border: 1px solid #1a355c !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-weight: 600 !important;
+  box-sizing: border-box !important;
+}
+
+/* ----------------------------
+   HOLIDAY (always filled)
+   show filled #1a355c circle
+   ---------------------------- */
+.fc-daygrid-day.has-holiday .fc-daygrid-day-number {
+  background-color: #1a355c !important;
+  color: white !important;
+  border: none !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-weight: 600 !important;
+  box-sizing: border-box !important;
+}
+
+

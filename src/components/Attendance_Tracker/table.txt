@@ -1,0 +1,142 @@
+ <Box
+          // border="1px solid #D0D5DD"
+          // borderRadius="8px"
+          overflow="hidden"
+          height="auto"
+          minH="100px"
+        >
+          {/* Table Header */}
+          <Grid
+            templateColumns="1fr 1fr 1fr"
+            // bg="#f0f2f5"
+            // borderBottom="1px solid #D0D5DD"
+          >
+            <Box
+              p={3}
+              fontSize="14px"
+              fontWeight="600"
+              color="#334155"
+              textAlign="center"
+              fontFamily="Poppins"
+            >
+              Cycle day
+            </Box>
+
+            <Box
+              p={3}
+              fontSize="14px"
+              fontWeight="600"
+              color="#334155"
+              textAlign="center"
+              fontFamily="Poppins"
+            >
+              Shift
+            </Box>
+
+            <Box
+              p={3}
+              fontSize="14px"
+              fontWeight="600"
+              color="#334155"
+              textAlign="center"
+              fontFamily="Poppins"
+            >
+              Hours
+            </Box>
+          </Grid>
+
+          {/* Rows */}
+          <Box height="100%" overflowY="auto" textAlign="center">
+            {Array.from({ length: cycleLength || 0 }, (_, index) => {
+              const day = index + 1;
+
+              return (
+                <Grid
+                  key={day}
+                  templateColumns="1fr 1fr 1fr"
+                  minH="52px"
+                  alignItems="center"
+                  // borderBottom="1px solid #E2E8F0"
+                  bg={index % 2 === 0 ? "white" : "#EDF2F7"}
+                >
+                  {/* Cycle Day */}
+                  <Box
+                    p={2.1}
+                    fontSize="13px"
+                    color="#334155"
+                    fontFamily="Poppins"
+                    fontWeight="500"
+                  >
+                    Day {day}
+                  </Box>
+
+                  {/* Shift */}
+                  <Box p={1.2}>
+                    <Select
+                      size="sm"
+                      value={
+                        cycleDays[index]?.shiftId === null
+                          ? "OFF_DAY"
+                          : cycleDays[index]?.shiftId || ""
+                      }
+                      placeholder={
+                        loading ? "Loading shifts..." : "Select shift"
+                      }
+                      bg="white"
+                      borderWidth="1.5px"
+                      borderColor="#cccccc"
+                      borderRadius="8px"
+                      fontWeight={500}
+                      height="28px"
+                      textAlign="left"
+                      color="#334155"
+                      fontSize="13px"
+                      fontFamily="Poppins"
+                      onChange={(e) => {
+                        const updatedDays = [...cycleDays];
+
+                        updatedDays[index] = {
+                          shiftId:
+                            e.target.value === "OFF_DAY"
+                              ? null
+                              : e.target.value,
+                        };
+
+                        setCycleDays(updatedDays);
+                      }}
+                    >
+                      {shifts.map((shift) => (
+                        <option key={shift._id} value={shift._id}>
+                          {shift.shift_name}
+                        </option>
+                      ))}
+
+                      <option value="OFF_DAY">Off day</option>
+                    </Select>
+                  </Box>
+
+                  {/* Hours */}
+                  <Box
+                    p={2.1}
+                    fontSize="13px"
+                    color="#334155"
+                    fontFamily="Poppins"
+                    fontWeight="500"
+                  >
+                    {cycleDays[index]?.shiftId === null
+                      ? "Off day"
+                      : (() => {
+                          const selectedShift = shifts.find(
+                            (shift) => shift._id === cycleDays[index]?.shiftId,
+                          );
+
+                          return selectedShift?.start && selectedShift?.end
+                            ? `${selectedShift.start} – ${selectedShift.end}`
+                            : "";
+                        })()}
+                  </Box>
+                </Grid>
+              );
+            })}
+          </Box>
+        </Box>
