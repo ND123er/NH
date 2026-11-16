@@ -135,6 +135,17 @@ export default function EmployeePerformanceManagement() {
       : Boolean(review && !submission && (PERFORMANCE_V2_ENABLED ? canEditForm(review, review.deadline_at, false) : true))
   );
 
+  console.log("Reviewer editing debug:", {
+  isSelf,
+  canEdit,
+  review,
+  reviewStatus: review?.form_status,
+  reviewSubmission: review?.submission,
+  deadline: review?.deadline_at,
+  performanceV2: PERFORMANCE_V2_ENABLED,
+  isDemoQuestions,
+});
+
   const setAnswer = (id, part, value) => setAnswers(prev => ({ ...prev, [id]: { score: prev[id]?.score ?? currentAnswers[id]?.score ?? null, remarks: prev[id]?.remarks ?? currentAnswers[id]?.remarks ?? '', [part]: value } }));
   const submit = async () => {
     if (isDemoQuestions || review?.isDemo) {

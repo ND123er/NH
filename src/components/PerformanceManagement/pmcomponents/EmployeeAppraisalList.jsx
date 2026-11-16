@@ -529,7 +529,7 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
                     {reviewerProgress?.text || `${reviewerProgress?.submitted ?? 0} of ${reviewerProgress?.total ?? 0} submitted`}
                   </Text>
                 </Box>
-                <Button
+                {/* <Button
                   size="sm"
                   borderRadius="full"
                   bg="#274167"
@@ -549,7 +549,7 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
                   isDisabled={detailsLoading || !activeDetails}
                 >
                   Open Feedback
-                </Button>
+                </Button> */}
               </Flex>
             </Box>
 
@@ -600,12 +600,63 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
             )} */}
 
             <Box bg="#f1f1f1" px={5} py={3.5} borderTop="1px solid #e5e5e5">
-              <Flex align="center" justify="space-between" mb={1}>
+              {/* <Flex align="center" justify="space-between" mb={1}>
                 <Text fontSize="13px" fontWeight={700}>Reviewer feedback</Text>
                 <Badge minW="60px" textAlign="center" borderRadius="full" bg="white" px={2.5} py={1}
                   fontSize="13px" fontWeight={600} textTransform="none">
                   {reviewerProgress?.submitted || 0} / {reviewerProgress?.total || 0}
                 </Badge>
+              </Flex> */}
+              <Flex align="center" justify="space-between" mb={1}>
+                <Text fontSize="13px" fontWeight={700}>
+                  Reviewer feedback
+                </Text>
+
+                <Flex align="center" gap={2}>
+                  
+
+                  <IconButton
+                    aria-label="Open Feedback"
+                    title="Open Feedback"
+                    icon={<Eye size={17} strokeWidth={1.7} />}
+                    size="xs"
+                    variant="ghost"
+                    color="#274167"
+                    borderRadius="full"
+                    _hover={{ bg: "#e1e7f0" }}
+                    onClick={() => {
+                      const appraisalId =
+                        activeRecord?.appraisalId || activeRecord?.id;
+
+                      onClose();
+
+                      navigate(
+                        `/performanceManagement/reviewer-feedback/${encodeURIComponent(appraisalId)}`,
+                        {
+                          state: {
+                            appraisalDetails: activeDetails,
+                            employeeName: activeRecord?.fullName,
+                            isDummy: Boolean(activeRecord?.isDummy),
+                          },
+                        }
+                      );
+                    }}
+                    isDisabled={detailsLoading || !activeDetails}
+                  />
+                  <Badge
+                    minW="60px"
+                    textAlign="center"
+                    borderRadius="full"
+                    bg="white"
+                    px={2.5}
+                    py={1}
+                    fontSize="13px"
+                    fontWeight={600}
+                    textTransform="none"
+                  >
+                    {reviewerProgress?.submitted || 0} / {reviewerProgress?.total || 0}
+                  </Badge>
+                </Flex>
               </Flex>
               <Text color="#777" fontSize="12px">
                 {activeDetails?.result

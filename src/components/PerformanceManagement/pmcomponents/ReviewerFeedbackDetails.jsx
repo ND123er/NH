@@ -61,7 +61,9 @@ export default function ReviewerFeedbackDetails() {
     <Box bg="#f5f5f5" minH="100vh" p={{ base: 3, md: 6 }}>
       <Button size="sm" leftIcon={<ArrowLeft size={15} />} mb={4} borderRadius="full"
         onClick={() => navigate("/performanceManagement")}>Back</Button>
-      <Box bg="white" border="1px solid #d8d8d8" borderRadius="16px" p={5} maxW="1000px" mx="auto">
+      <Box bg="white" border="1px solid #d8d8d8" borderRadius="16px" p={5}
+      //  maxW="1000px" 
+       mx="auto">
         <Text fontSize="22px" fontWeight={700} mb={1}>Reviewer feedback</Text>
         <Text fontSize="12px" color="#777" mb={4}>
           {employeeName} · Submitted feedback can be opened individually. Pending reviews are locked.
