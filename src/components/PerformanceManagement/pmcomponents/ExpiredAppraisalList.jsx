@@ -38,6 +38,9 @@ import {
 import {
   reopenSelfAssessment,
   sendMissedDeadlineEmail,
+  sendReviewReminder,
+  reopenReview,
+  PERFORMANCE_V2_ENABLED,
 } from "../../../api/performancemanagementdashborad";
 import PerformanceManagementTable from "./ui/PerformanceManagementTable";
 import { useCompanyDepartments } from "./useCompanyDepartments";
@@ -121,7 +124,7 @@ const ExpiredAppraisalList = ({
     const query = search.trim().toLowerCase();
 
     return rows.filter((row) => {
-      const rowId = row._id || row.appraisalId;
+      const rowId = row.formId || row._id || row.appraisalId;
       const matchesDepartment =
         !selectedDepartment || row.department === selectedDepartment;
       const matchesDate = !selectedDate || row.appraisalDateISO === selectedDate;
@@ -141,7 +144,7 @@ const ExpiredAppraisalList = ({
   }, [rows, reopenedIds, selectedDepartment, selectedDate, search]);
 
   const handleReminder = async (row) => {
-    const appraisalId = row?._id || row?.appraisalId;
+    const appraisalId = row?.appraisalId || row?._id;
     if (!appraisalId) {
       toast({ title: "Appraisal ID is missing", status: "error", isClosable: true });
       return false;
@@ -149,10 +152,13 @@ const ExpiredAppraisalList = ({
 
     setReminderStates((current) => ({ ...current, [appraisalId]: "sending" }));
     try {
-      const response = await sendMissedDeadlineEmail(appraisalId);
-      setReminderStates((current) => ({ ...current, [appraisalId]: "sent" }));
+      const response = PERFORMANCE_V2_ENABLED && row.formType === 2
+        ? await sendReviewReminder(row.formId || row._id)
+        : await sendMissedDeadlineEmail(appraisalId);
+      setReminderStates((current) => ({ ...current, [appraisalId]: "queued" }));
+      await onRefresh?.();
       toast({
-        title: "Reminder sent",
+        title: "Reminder queued",
         description: response?.msg || "The reminder email was queued successfully.",
         status: "success",
         duration: 3000,
@@ -173,8 +179,8 @@ const ExpiredAppraisalList = ({
   };
 
   const openReopenDialog = (row) => {
-    const appraisalId = row?._id || row?.appraisalId;
-    if (row?.isDummy || reminderStates[appraisalId] !== "sent") return;
+    const appraisalId = row?.appraisalId || row?._id;
+    if (row?.isDummy || (PERFORMANCE_V2_ENABLED ? !row.can_reactivate : reminderStates[appraisalId] !== "sent")) return;
 
     setReopenTarget(row);
     onOpen();
@@ -187,7 +193,7 @@ const ExpiredAppraisalList = ({
   };
 
   const confirmReopen = async () => {
-    const appraisalId = reopenTarget?._id || reopenTarget?.appraisalId;
+    const appraisalId = reopenTarget?.appraisalId || reopenTarget?._id;
     if (!appraisalId) {
       toast({ title: "Appraisal ID is missing", status: "error", isClosable: true });
       return;
@@ -195,10 +201,12 @@ const ExpiredAppraisalList = ({
 
     setReopenLoading(true);
     try {
-      const response = await reopenSelfAssessment(appraisalId);
+      const response = PERFORMANCE_V2_ENABLED && reopenTarget.formType === 2
+        ? await reopenReview(reopenTarget.formId || reopenTarget._id)
+        : await reopenSelfAssessment(appraisalId);
       setReopenedIds((current) => ({ ...current, [appraisalId]: true }));
       toast({
-        title: "Self-assessment reopened",
+        title: "Form reopened",
         description:
           response?.msg || "The employee has five calendar days to complete the form.",
         status: "success",
@@ -224,10 +232,10 @@ const ExpiredAppraisalList = ({
     {
       label: "Reminder",
       getLabel: (row) =>
-        reminderStates[row._id || row.appraisalId] === "sent" ? "Sent" : "Reminder",
+        reminderStates[row.appraisalId || row._id] === "queued" ? "Queued" : "Reminder",
       icon: <AlarmClock size={14} strokeWidth={1.7} />,
       getIcon: (row) =>
-        reminderStates[row._id || row.appraisalId] === "sent" ? (
+        reminderStates[row.appraisalId || row._id] === "queued" ? (
           <Check size={14} strokeWidth={2} />
         ) : (
           <AlarmClock size={14} strokeWidth={1.7} />
@@ -237,13 +245,13 @@ const ExpiredAppraisalList = ({
       px: 2,
       borderRadius: "full",
       getVariant: (row) =>
-        reminderStates[row._id || row.appraisalId] === "sent" ? "solid" : "outline",
+        reminderStates[row.appraisalId || row._id] === "queued" ? "solid" : "outline",
       getColorScheme: (row) =>
-        reminderStates[row._id || row.appraisalId] === "sent" ? "green" : "gray",
+        reminderStates[row.appraisalId || row._id] === "queued" ? "blue" : "gray",
       isLoading: (row) =>
-        reminderStates[row._id || row.appraisalId] === "sending",
+        reminderStates[row.appraisalId || row._id] === "sending",
       getIsDisabled: (row) =>
-        row.isDummy || reminderStates[row._id || row.appraisalId] === "sent",
+        row.isDummy || reminderStates[row.appraisalId || row._id] === "queued",
       loadingText: "Sending...",
       onClick: handleReminder,
     },
@@ -256,17 +264,17 @@ const ExpiredAppraisalList = ({
       borderRadius: "full",
       variant: "outline",
       getIsDisabled: (row) =>
-        row.isDummy || reminderStates[row._id || row.appraisalId] !== "sent",
+        row.isDummy || (PERFORMANCE_V2_ENABLED ? !row.can_reactivate : true),
       onClick: openReopenDialog,
     },
   ];
 
   const hasSentReminder =
     reopenTarget &&
-    reminderStates[reopenTarget._id || reopenTarget.appraisalId] === "sent";
+    (PERFORMANCE_V2_ENABLED ? reopenTarget.can_reactivate : false);
   const modalReminderLoading =
     reopenTarget &&
-    reminderStates[reopenTarget._id || reopenTarget.appraisalId] === "sending";
+    reminderStates[reopenTarget.appraisalId || reopenTarget._id] === "sending";
 
   return (
     <>
@@ -512,8 +520,7 @@ const ExpiredAppraisalList = ({
               <>
                 <Text color="#555" fontSize="12px" lineHeight="1.6" mb={3}>
                   Re-open {reopenTarget?.fullName || "this employee"}'s self-assessment after
-                  reviewing their reason for missing the deadline. The form will be open for
-                  five calendar days.
+                  reviewing their reason for missing the deadline. The backend will assign the configured reactivation deadline.
                 </Text>
                 <Flex align="flex-start" gap={3} bg="#f0f0f0" borderRadius="9px" p={3}>
                   <CircleAlert size={27} color="#999" />
@@ -526,15 +533,13 @@ const ExpiredAppraisalList = ({
             ) : (
               <>
                 <Text color="#666" fontSize="12px" lineHeight="1.55" mb={3}>
-                  You need to send a reminder to the employee first. Once the employee replies
-                  with the reason for missing the deadline, you can reopen the form for 5 days.
+                  A reminder must be delivered (SENT) for this expired form before reactivation is permitted.
                 </Text>
                 <Flex align="center" gap={3} bg="#f0f0f0" borderRadius="9px" p={3}>
                   <CircleAlert size={30} color="#999" />
                   <Box w="1px" alignSelf="stretch" bg="#d5d5d5" />
                   <Text color="#777" fontSize="11px" lineHeight="1.5">
-                    The Re-open option will be enabled after the employee replies to your
-                    reminder.
+                    The Re-open option is enabled only when the backend confirms eligibility.
                   </Text>
                 </Flex>
               </>

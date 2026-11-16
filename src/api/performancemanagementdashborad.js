@@ -42,3 +42,12 @@ export const submitSelfAssessment = async (id, answers) => (await api.post(`${PE
 export const getMyReviews = async ({ page = 1, limit = 100 } = {}) => (await api.get(`${PERFORMANCE_API}/get_my_reviews`, { params: { page, limit } })).data;
 export const submitReview = async (id, answers) => (await api.post(`${PERFORMANCE_API}/submit_review/${encodeURIComponent(id)}`, { answers })).data;
 
+
+// Target-contract APIs: call only after the coordinated backend deployment.
+export const PERFORMANCE_V2_ENABLED = import.meta.env.VITE_PERFORMANCE_V2_ENABLED === 'true';
+export const saveSelfAssessmentDraft = async (id, answers) => (await api.put(`${PERFORMANCE_API}/save_self_assessment_draft/${encodeURIComponent(id)}`, { answers })).data;
+export const saveReviewDraft = async (id, answers) => (await api.put(`${PERFORMANCE_API}/save_review_draft/${encodeURIComponent(id)}`, { answers })).data;
+export const getReviewDetails = async (id) => (await api.get(`${PERFORMANCE_API}/get_review/${encodeURIComponent(id)}`)).data;
+export const getExpiredForms = async ({ page = 1, limit = 100 } = {}) => (await api.get(`${PERFORMANCE_API}/get_expired_forms`, { params: { page, limit } })).data;
+export const sendReviewReminder = async (id) => (await api.post(`${PERFORMANCE_API}/send_review_reminder/${encodeURIComponent(id)}`, {})).data;
+export const reopenReview = async (id, deadline_at) => (await api.post(`${PERFORMANCE_API}/reopen_review/${encodeURIComponent(id)}`, deadline_at ? { deadline_at } : {})).data;

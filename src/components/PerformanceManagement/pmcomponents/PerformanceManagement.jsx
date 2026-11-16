@@ -3,7 +3,7 @@ import { Box } from "@chakra-ui/react";
 import PmOverview from "./PmOverview";
 import EmployeeAppraisalList from "./EmployeeAppraisalList";
 import ExpiredAppraisalList from "./ExpiredAppraisalList";
-import { getAppraisalEmployee } from "../../../api/performancemanagementdashborad";
+import { getAppraisalEmployee, getExpiredForms, PERFORMANCE_V2_ENABLED } from "../../../api/performancemanagementdashborad";
 import {
   appraisalRecords,
   expiredAppraisalRecords,
@@ -38,14 +38,15 @@ const formatDisplayDate = (value) => {
 
 const normalizeAppraisal = (record) => {
   const formStatus = Number(record.form_status ?? record.status);
-  const statusLabels = {
+  const appraisalStatus = Number(record.status);
+  const statusLabels = PERFORMANCE_V2_ENABLED ? {
     1: "Upcoming",
     2: "Pending",
-    3: "Expired",
-    4: "Pending",
-    5: "Submitted",
-    6: "Completed",
-  };
+    3: "Draft",
+    4: "Submitted",
+    5: "Expired",
+    6: "Reactivated",
+  } : { 1: "Upcoming", 2: "Pending", 3: "Expired", 4: "Pending", 5: "Submitted", 6: "Completed" };
   const progress = record.reviewer_progress || {};
   const progressTotal = Number(progress.total) || 0;
   const progressSubmitted = Number(progress.submitted) || 0;
@@ -73,7 +74,7 @@ const normalizeAppraisal = (record) => {
           ? "Locked"
           : "0 / 0",
     formStatus: statusLabels[formStatus] || "Unknown",
-    isExpired: formStatus === 3,
+    isExpired: formStatus === 5 || (!PERFORMANCE_V2_ENABLED && appraisalStatus === 3),
   };
 };
 
@@ -137,7 +138,7 @@ const PerformanceManagement = () => {
   const [dashboardError, setDashboardError] = useState("");
 
   const loadDashboard = useCallback(async () => {
-    const dummyDashboard = getDummyDashboard();
+    const dummyDashboard = import.meta.env.DEV && import.meta.env.VITE_PERFORMANCE_DEMO !== "false" ? getDummyDashboard() : null;
     setDashboardLoading(true);
     setDashboardError("");
 
@@ -148,7 +149,28 @@ const PerformanceManagement = () => {
         : [];
 
       if (apiRows.length) {
-        const apiExpiredRows = apiRows.filter((row) => row.isExpired);
+        let apiExpiredRows = apiRows.filter((row) => row.isExpired);
+        if (PERFORMANCE_V2_ENABLED) {
+          try {
+            const expiredResponse = await getExpiredForms({ page: 1, limit: 100 });
+            apiExpiredRows = (expiredResponse?.result || []).map((form) => ({
+              ...form,
+              id: form.form_id,
+              _id: form.form_id,
+              appraisalId: form.appraisal_id,
+              formId: form.form_id,
+              formType: Number(form.form_type),
+              employeeCode: form.employee?.employee_code || form.employee_id || '-',
+              fullName: form.employee?.name || '-',
+              department: form.employee?.department || '-',
+              formStatus: 'Expired',
+              deadline_at: form.deadline_at,
+              can_reactivate: form.can_reactivate === true,
+              isExpired: true,
+              isDummy: false,
+            }));
+          } catch (error) { console.warn('Expired forms unavailable; showing legacy dashboard rows', error); }
+        }
         const fallbackCounts = getDashboardCounts(apiRows, apiExpiredRows);
         const apiCounts = response?.counts || {};
 
@@ -158,8 +180,8 @@ const PerformanceManagement = () => {
             self_submitted: apiCounts.self_submitted ?? fallbackCounts.self_submitted,
             overdue: apiCounts.overdue ?? fallbackCounts.overdue,
           },
-          rows: apiRows,
-          expiredRows: apiExpiredRows,
+          rows: dummyDashboard ? [...apiRows, ...dummyDashboard.rows] : apiRows,
+          expiredRows: dummyDashboard ? [...apiExpiredRows, ...dummyDashboard.expiredRows] : apiExpiredRows,
         });
       } else if (dummyDashboard) {
         setDashboard(dummyDashboard);

@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   Button,
+  Collapse,
   Flex,
   Heading,
   IconButton,
@@ -24,12 +25,13 @@ import {
   useDisclosure,
   useToast,
 } from "@chakra-ui/react";
-import { CalendarDays, Eye, Search, Settings2, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, ChevronDown, Eye, Search, Settings2, SlidersHorizontal } from "lucide-react";
 import PerformanceManagementTable from "./ui/PerformanceManagementTable";
 import { appraisalColumns } from "./ui/upcomingColumns";
 import { getAppraisalDetails } from "../../../api/performancemanagementdashborad";
 import { useCompanyDepartments } from "./useCompanyDepartments";
 import { selfAssessmentCriteria } from "./data/dummyAppraisalData";
+import { useNavigate } from "react-router-dom";
 
 const statusOptions = ["Submitted", "Pending", "Locked"];
 
@@ -76,6 +78,9 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
   const [activeDetails, setActiveDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
+  const [expandedSelf, setExpandedSelf] = useState({});
+  const [selectedReviewerId, setSelectedReviewerId] = useState(null);
+  const [expandedReview, setExpandedReview] = useState({});
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   const { departmentNames, isLoading: departmentsLoading, error: departmentsError } =
@@ -92,6 +97,9 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
       dateInput.click();
     }
   };
+
+  const navigate = useNavigate();
+
   const clearFilters = () => {
     setSearch("");
     setSelectedStatus("");
@@ -114,9 +122,14 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
         );
       const matchesStatus =
         !selectedStatus ||
-        (selectedStatus === "Locked"
-          ? record.feedback === "Locked"
-          : record.selfAssessment === selectedStatus);
+        // (selectedStatus === "Locked"
+        //   ? record.feedback === "Locked"
+        //   : record.selfAssessment === selectedStatus);
+        (
+          selectedStatus === "Locked"
+            ? record.feedback === "Locked" || record.selfAssessment === "Pending"
+            : record.selfAssessment === selectedStatus
+        );
       const matchesDepartment =
         selectedDepartment === "All Departments" ||
         record.department === selectedDepartment;
@@ -130,6 +143,9 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
     setActiveRecord(record);
     setActiveDetails(null);
     setDetailsError("");
+    setExpandedSelf({});
+    setSelectedReviewerId(null);
+    setExpandedReview({});
     onOpen();
 
     if (record.isDummy) {
@@ -140,6 +156,7 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
       const answers = selfAssessmentCriteria.map((criterion, index) => ({
         question_id: `dummy-question-${index + 1}`,
         score: criterion.score,
+        remarks: `Demo employee comment for ${criterion.label}.`,
       }));
       const submittedReviewers = Number.parseInt(record.feedback, 10) || 0;
       const totalReviewers = Number.parseInt(record.feedback.split("/")[1], 10) || 0;
@@ -152,6 +169,18 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
             total_score: answers.reduce((total, answer) => total + answer.score, 0),
           },
         },
+        reviewers: Array.from({ length: totalReviewers }, (_, i) => ({
+          _id: `demo-review-${i + 1}`,
+          name: `Demo Reviewer ${i + 1}`,
+          designation: "Reviewer",
+          submitted: i < submittedReviewers,
+          form_status: i < submittedReviewers ? 4 : 2,
+          questions: i < submittedReviewers ? questions : undefined,
+          submission: i < submittedReviewers ? {
+            answers: answers.map((answer) => ({ ...answer, remarks: `Demo reviewer comment for question ${answer.question_id}.` })),
+            total_score: answers.reduce((sum, answer) => sum + answer.score, 0),
+          } : null,
+        })),
         reviewer_progress: {
           submitted: submittedReviewers,
           total: totalReviewers,
@@ -197,9 +226,12 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
   const answers = assessment?.submission?.answers || [];
   const reviewerProgress = activeDetails?.reviewer_progress || activeRecord?.reviewer_progress;
   const reviewers = activeDetails?.reviewers || [];
+  const selectedReviewer = reviewers.find((reviewer) => String(reviewer._id) === String(selectedReviewerId));
   const totalScore =
-    assessment?.submission?.total_score ??
-    (answers.length ? answers.reduce((total, answer) => total + Number(answer.score || 0), 0) : null);
+    assessment?.submission?.total_score ?? null;
+
+  const overallScore =
+    activeDetails?.result?.score ?? null;
   return (
     <Box
       id="appraisal-list"
@@ -371,7 +403,14 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
 
       <Box pt={2}>
         <PerformanceManagementTable
-          data={filteredAppraisals}
+          // data={filteredAppraisals}
+          data={filteredAppraisals.map((record) => ({
+            ...record,
+            feedback:
+              record.selfAssessment === "Pending"
+                ? "Locked"
+                : record.feedback,
+          }))}
           columns={appraisalColumns}
           rowActions={rowActions}
           loading={loading}
@@ -434,47 +473,38 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
               </Flex>
 
               {detailsLoading ? (
-                <Flex justify="center" py={10}>
-                  <Spinner />
-                </Flex>
+                <Flex justify="center" py={10}><Spinner /></Flex>
               ) : detailsError ? (
-                <Text color="red.600" fontSize="13px" py={3}>
-                  {detailsError}
-                </Text>
+                <Text color="red.600" fontSize="13px" py={3}>{detailsError}</Text>
               ) : questions.length > 0 ? (
                 <Box>
                   {questions.map((question, index) => {
-                    const answer = answers.find(
-                      (item) => String(item.question_id) === String(question.id),
-                    );
-
+                    const answer = answers.find((item) => String(item.question_id) === String(question.id));
+                    const expanded = Boolean(expandedSelf[question.id]);
                     return (
-                      <Flex
-                        key={question.id}
-                        minH="44px"
-                        align="center"
-                        justify="space-between"
-                        px={2.5}
-                        mb={1}
-                        borderRadius="18px"
-                        bg="#f1f1f1"
-                        fontSize="13px"
-                      >
-                        <Text>{index + 1}.&nbsp; {question.text}</Text>
+                      <Box key={question.id} mb={1} bg="#f1f1f1" borderRadius="18px" overflow="hidden">
                         <Flex
-                          align="center"
-                          justify="center"
-                          minW="96px"
-                          h="29px"
-                          borderRadius="full"
-                          bg="white"
-                          boxShadow="0 1px 3px rgba(0,0,0,0.08)"
-                          fontSize="14px"
-                          fontWeight={500}
+                          as="button" type="button" w="100%" minH="44px" align="center"
+                          justify="space-between" px={2.5} gap={2} textAlign="left"
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedSelf((prev) => ({ ...prev, [question.id]: !prev[question.id] }))}
                         >
-                          {answer ? `${answer.score} / 10` : "- / 10"}
+                          <Text fontSize="13px" flex="1">{index + 1}.&nbsp; {question.text}</Text>
+                          <Flex align="center" justify="center" minW="96px" h="29px" borderRadius="full"
+                            bg="white" boxShadow="0 1px 3px rgba(0,0,0,0.08)" fontSize="14px" fontWeight={500}>
+                            {answer?.score != null ? `${answer.score} / 10` : "- / 10"}
+                          </Flex>
+                          <Box transform={expanded ? "rotate(180deg)" : "none"} transition="transform .2s"><ChevronDown size={15} /></Box>
                         </Flex>
-                      </Flex>
+                        <Collapse in={expanded} animateOpacity>
+                          <Box px={4} pb={3} pt={2} bg="white" borderTop="1px solid #e5e5e5">
+                            <Text fontSize="11px" fontWeight={600} mb={1}>Employee comment</Text>
+                            <Text fontSize="12px" color="#757575" whiteSpace="pre-wrap">
+                              {answer?.remarks?.trim() || "No comment provided."}
+                            </Text>
+                          </Box>
+                        </Collapse>
+                      </Box>
                     );
                   })}
                 </Box>
@@ -483,56 +513,97 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
                   No self-assessment questions are available for this appraisal.
                 </Text>
               )}
-
-              <Button
-                variant="link"
-                mt={2}
-                color="#777"
-                fontSize="11px"
-                fontWeight={400}
-                onClick={() =>
-                  toast({
-                    title: "Self-assessment",
-                    description: "The employee's self-assessment is shown above.",
-                    status: "info",
-                    duration: 2200,
-                    isClosable: true,
-                  })
-                }
-              >
-                View self-assessment
-              </Button>
+              {questions.length > 0 && (
+                <Button variant="link" mt={2} color="#777" fontSize="11px" fontWeight={400}
+                  onClick={() => setExpandedSelf(Object.fromEntries(questions.map((q) => [q.id, true])))}>
+                  View self-assessment comments
+                </Button>
+              )}
             </Box>
 
             <Box bg="#f1f1f1" px={5} py={3.5}>
-              <Text fontSize="13px" fontWeight={700} mb={1}>
-                Reviewer activity
-              </Text>
-              <Text color="#777" fontSize="12px" lineHeight="1.5">
-                {reviewers.length
-                  ? reviewers
-                      .map((reviewer) => `${reviewer.name || "Reviewer"} (${reviewer.submitted ? "submitted" : "pending"})`)
-                      .join(", ")
-                  : "No reviewers are assigned to this appraisal yet."}
-              </Text>
+              <Flex align="center" justify="space-between" gap={3}>
+                <Box>
+                  <Text fontSize="13px" fontWeight={700}>Reviewer activity</Text>
+                  <Text color="#777" fontSize="12px">
+                    {reviewerProgress?.text || `${reviewerProgress?.submitted ?? 0} of ${reviewerProgress?.total ?? 0} submitted`}
+                  </Text>
+                </Box>
+                <Button
+                  size="sm"
+                  borderRadius="full"
+                  bg="#274167"
+                  color="white"
+                  _hover={{ bg: "#1b3155" }}
+                  onClick={() => {
+                    const appraisalId = activeRecord?.appraisalId || activeRecord?.id;
+                    onClose();
+                    navigate(`/performanceManagement/reviewer-feedback/${encodeURIComponent(appraisalId)}`, {
+                      state: {
+                        appraisalDetails: activeDetails,
+                        employeeName: activeRecord?.fullName,
+                        isDummy: Boolean(activeRecord?.isDummy),
+                      },
+                    });
+                  }}
+                  isDisabled={detailsLoading || !activeDetails}
+                >
+                  Open Feedback
+                </Button>
+              </Flex>
             </Box>
+
+            {/* {selectedReviewer && selectedReviewer.submitted && selectedReviewer.submission && (
+              <Box px={5} py={4} bg="white" borderTop="1px solid #e5e5e5">
+                <Flex align="center" justify="space-between" mb={3}>
+                  <Text fontSize="14px" fontWeight={700}>{selectedReviewer.name || "Reviewer"} — Feedback</Text>
+                  <Button size="xs" variant="ghost" onClick={() => setSelectedReviewerId(null)}>Close</Button>
+                </Flex>
+                <Flex align="center" gap={2} mb={3}>
+                  <Text fontSize="12px">Reviewer total score</Text>
+                  <Badge bg="#008b12" color="white" borderRadius="full" px={2.5}>
+                    {selectedReviewer.submission.total_score ?? selectedReviewer.total_score ?? "—"} / 100
+                  </Badge>
+                </Flex>
+                {(selectedReviewer.questions || []).map((question, index) => {
+                  const answer = (selectedReviewer.submission.answers || []).find(
+                    (item) => String(item.question_id) === String(question.id)
+                  );
+                  const expanded = Boolean(expandedReview[question.id]);
+                  return (
+                    <Box key={question.id} mb={1} borderRadius="18px" bg="#f1f1f1" overflow="hidden">
+                      <Flex as="button" type="button" w="100%" minH="44px" px={2.5} gap={2}
+                        align="center" justify="space-between" textAlign="left" aria-expanded={expanded}
+                        onClick={() => setExpandedReview((prev) => ({ ...prev, [question.id]: !prev[question.id] }))}>
+                        <Text fontSize="13px" flex="1">{index + 1}.&nbsp; {question.text}</Text>
+                        <Flex bg="white" borderRadius="full" minW="96px" h="29px" justify="center" align="center"
+                          fontSize="14px" boxShadow="0 1px 3px rgba(0,0,0,0.08)">
+                          {answer?.score != null ? `${answer.score} / 10` : "- / 10"}
+                        </Flex>
+                        <Box transform={expanded ? "rotate(180deg)" : "none"} transition="transform .2s"><ChevronDown size={15} /></Box>
+                      </Flex>
+                      <Collapse in={expanded} animateOpacity>
+                        <Box px={4} py={3} bg="white" borderTop="1px solid #e5e5e5">
+                          <Text fontSize="11px" fontWeight={600} mb={1}>Reviewer comment</Text>
+                          <Text fontSize="12px" color="#757575" whiteSpace="pre-wrap">
+                            {answer?.remarks?.trim() || "No comment provided."}
+                          </Text>
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  );
+                })}
+                {!selectedReviewer.questions?.length && (
+                  <Text fontSize="12px" color="#777">Reviewer question details are not available in this response.</Text>
+                )}
+              </Box>
+            )} */}
 
             <Box bg="#f1f1f1" px={5} py={3.5} borderTop="1px solid #e5e5e5">
               <Flex align="center" justify="space-between" mb={1}>
-                <Text fontSize="13px" fontWeight={700}>
-                  Reviewer feedback
-                </Text>
-                <Badge
-                  minW="60px"
-                  textAlign="center"
-                  borderRadius="full"
-                  bg="white"
-                  px={2.5}
-                  py={1}
-                  fontSize="13px"
-                  fontWeight={600}
-                  textTransform="none"
-                >
+                <Text fontSize="13px" fontWeight={700}>Reviewer feedback</Text>
+                <Badge minW="60px" textAlign="center" borderRadius="full" bg="white" px={2.5} py={1}
+                  fontSize="13px" fontWeight={600} textTransform="none">
                   {reviewerProgress?.submitted || 0} / {reviewerProgress?.total || 0}
                 </Badge>
               </Flex>
@@ -544,7 +615,12 @@ const EmployeeAppraisalList = ({ appraisals = [], loading = false, error = "" })
             </Box>
           </ModalBody>
 
-          <Flex justify="flex-end" p={2.5} flexShrink={0}>
+          <Flex justify="space-between" align="center" p={2.5} flexShrink={0}>
+            <Text fontSize="12px" fontWeight={600} color="#274167">
+              {/* Obtained score: {totalScore === null ? "—" : `${totalScore} / 100`} */}
+              Overall obtained score:{" "}
+              {overallScore === null ? "Pending" : `${overallScore} / 100`}
+            </Text>
             <Button
               onClick={() => {
                 onClose();

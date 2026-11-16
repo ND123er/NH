@@ -156,6 +156,7 @@ import EditHrPolicy from "./settingsRoutes/hrPolicies/EditHrPolicy";
 import EditHrPoliciesEmployee from "../components/HrPoliciesEmployee/EditHrPoliciesEmployee";
 import ResignedEmployee from "../components/Employees/ResignedEmployee";
 import PerformanceManagementMain from "../pages/dashboard/PerformanceManagementMain";
+import ReviewerFeedbackDetails from "../components/PerformanceManagement/pmcomponents/ReviewerFeedbackDetails";
 // import {  Spinner } from "@chakra-ui/react";
 
 /* ---------- ROUTES ---------- */
@@ -321,20 +322,20 @@ export const AllRoutes = () => {
       </Route>
 
       <Route element={<PublicRoute />}>
-      <Route
-        path="/orgRegister"
-        element={
-          <Suspense
-            fallback={
-              <Center h="60vh">
-                <Spinner size="lg" />
-              </Center>
-            }
-          >
-            <OrganizationRegister />
-          </Suspense>
-        }
-      />
+        <Route
+          path="/orgRegister"
+          element={
+            <Suspense
+              fallback={
+                <Center h="60vh">
+                  <Spinner size="lg" />
+                </Center>
+              }
+            >
+              <OrganizationRegister />
+            </Suspense>
+          }
+        />
       </Route>
 
       {/* ---------- Protected Routes ---------- */}
@@ -515,8 +516,30 @@ export const AllRoutes = () => {
                 }
               >
                 {/* <PerformanceManagement /> */}
-                
-                <PerformanceManagementMain/>
+
+                <PerformanceManagementMain />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/performanceManagement/reviewer-feedback/:appraisalId"
+            element={
+              <Suspense fallback={<Center h="40vh"><Spinner size="md" /></Center>}>
+                <ReviewerFeedbackDetails />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/performanceManagement/reviewer-feedback/:appraisalId/:reviewerId"
+            element={
+              <Suspense
+                fallback={
+                  <Center h="40vh">
+                    <Spinner size="md" />
+                  </Center>
+                }
+              >
+                <ReviewerFeedbackDetails />
               </Suspense>
             }
           />
@@ -721,11 +744,11 @@ export const AllRoutes = () => {
             path="/settings/organization/account/roles/*"
             element={<RolesRoutes />}
           />
-           <Route
+          <Route
             path="/settings/organization/account/theme/*"
             element={<ThemesRoutes />}
           />
-            <Route
+          <Route
             path="/settings/organization/account/email-notifications/*"
             element={<EmailsRoutes />}
           />

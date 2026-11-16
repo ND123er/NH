@@ -1,3 +1,4 @@
+import { PERFORMANCE_V2_ENABLED } from '../../../api/performancemanagementdashborad';
 import React, { useEffect, useState } from "react";
 import api from "../../../api/axios";
 import { getOrgCode } from "../../../utils/token";
@@ -46,6 +47,10 @@ const blankQuestions = () =>
 const defaults = {
   schedule_type: "",
   activation_offset_days: "",
+  self_deadline_days: 30,
+  reviewer_deadline_days: 30,
+  reactivation_days: 5,
+  self_role_templates: [],
   cap_type: "",
   company_cap_percent: "",
   band_caps: [],
@@ -267,6 +272,7 @@ export default function PerformanceManagementRoutes() {
             ...defaults,
             ...saved,
             band_caps: Array.isArray(saved.band_caps) ? saved.band_caps : [],
+            self_role_templates: Array.isArray(saved.self_role_templates) ? saved.self_role_templates : [],
             role_templates: Array.isArray(saved.role_templates)
               ? saved.role_templates
               : [],
@@ -573,6 +579,12 @@ export default function PerformanceManagementRoutes() {
       cap_type: Number(settings.cap_type),
       self_template_id: settings.self_template_id,
       reviewer_template_mode: Number(settings.reviewer_template_mode),
+      ...(PERFORMANCE_V2_ENABLED ? {
+        self_deadline_days: Number(settings.self_deadline_days),
+        reviewer_deadline_days: Number(settings.reviewer_deadline_days),
+        reactivation_days: Number(settings.reactivation_days),
+        self_role_templates: settings.self_role_templates || [],
+      } : {}),
     };
 
     if (payload.cap_type === 1) {
@@ -749,6 +761,17 @@ export default function PerformanceManagementRoutes() {
                 <option value={-10}>Ten days before appraisal</option>
               </Select>
             </FormControl>
+            {PERFORMANCE_V2_ENABLED && [
+              ['self_deadline_days', 'Self-assessment deadline (days)'],
+              ['reviewer_deadline_days', 'Reviewer deadline (days)'],
+              ['reactivation_days', 'Reactivation duration (days)'],
+            ].map(([key, label]) => (
+              <FormControl key={key}>
+                <FormLabel fontFamily="Poppins, sans-serif" color="#000" fontSize="14px">{label}</FormLabel>
+                <Input {...controlStyles} type="number" min={1} step={1} value={settings[key]}
+                  onChange={updateSetting(key)} />
+              </FormControl>
+            ))}
             <FormControl>
               <FormLabel
                 fontFamily="Poppins, sans-serif"
